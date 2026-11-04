@@ -13,3 +13,5 @@ Validation: native hyperchanger_folder library builds with NDK 28.2.13676358 / C
 Local experimental APK packaging replaces only lib/arm64-v8a/libhyperchanger_folder.so in installed HyperChanger 1.2.2 RC2, removes old JAR signatures, zipaligns with 16 KiB page alignment, and signs with a separate personal key. It is not a complete Gradle rebuild. Device system libraries, captures, logs and signing keys are excluded from Git.
 
 Personal signature differs from upstream. Do not uninstall an existing installation without backing up module settings and planning a rollback.
+
+Static device-binary validation: all six existing entry guards pass for paint, raster, render, keyguard (24 instructions), Dart capture and Dart icon. This confirms hook entry addresses, not runtime behavior. Official in-app ZIP export completed before installation changes; no personal backup is tracked.
