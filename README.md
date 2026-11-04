@@ -1,35 +1,10 @@
-> **个人适配分支 · 开发中**
+> **个人适配分支 · 已在指定设备验证**
 >
-> 基于 [ColdP/HyperChanger](https://github.com/ColdP/HyperChanger)，保留原作者署名与 AGPL-3.0 许可证。研究 OS4.0.4.0.XPBCNXM / 桌面 8583 的 Dock 解锁动画适配，非官方版本。
+> 基于 [ColdP/HyperChanger](https://github.com/ColdP/HyperChanger)，保留原作者署名与 AGPL-3.0 许可证，非官方构建。
 >
-> 当前只恢复了引擎符号对应地址，尚未完成 ABI 校验与实机测试，请勿视为可用修复。
-<p align="center">
-  <img src="app/src/main/res/drawable/ic_hyperchanger_full.png" alt="HyperChanger 图标" width="128">
-</p>
-
-<h1 align="center"><strong>HyperChanger</strong></h1>
-
-<p align="center">随心塑造你的 HyperOS 4。</p>
-
-<p align="center">
-  <strong>简体中文</strong> |
-  <a href="README_en.md">English</a> |
-  <a href="README_ja.md">日本語</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/ColdP/HyperChanger/releases">发布版本</a> |
-  <a href="https://t.me/HyperChanger">Telegram 群组</a> |
-  <a href="https://qm.qq.com/q/rQhbQbiYLe">QQ 群：429188055</a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/github/v/release/ColdP/HyperChanger?style=flat-square" alt="发布版本">
-  <img src="https://img.shields.io/badge/Platform-Android-green?style=flat-square&logo=android" alt="平台">
-  <img src="https://img.shields.io/badge/minSdk-35-blue?style=flat-square" alt="最低 SDK">
-  <img src="https://img.shields.io/badge/targetSdk-37-blue?style=flat-square" alt="目标 SDK">
-  <img src="https://img.shields.io/badge/License-AGPL--3.0-yellow?style=flat-square" alt="许可证">
-</p>
+> 修复 OS4.0.4.0.XPBCNXM / 桌面 8.01.02.8583 的 Dock 解锁入场动画。2026-11-04 在 Xiaomi 17 Pro Max 上验证：动画 Hook 加载、Dock 背景绑定、解锁跟随与恢复正常，用户确认效果成功；测试只重启桌面，未重启手机。其他系统版本未验证。
+>
+> 安装包使用个人签名，不能直接覆盖官方签名版。替换前请导出设置并备份。技术细节见 [适配记录](OS404_ADAPTATION.md)。
 
 ## 项目简介
 
