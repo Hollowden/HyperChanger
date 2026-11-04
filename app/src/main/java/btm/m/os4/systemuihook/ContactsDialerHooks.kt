@@ -62,6 +62,7 @@ internal class ContactsDialerHooks(
     }
 
     private fun apply(background: View, settings: ContactsDialerBackgroundSettings) {
+        ContactsDialerKeySpacing.apply(background)
         val state = states.getOrPut(background) { BackgroundState() }
         if (settings.blur && !state.blurAttempted) {
             state.blurAttempted = true
