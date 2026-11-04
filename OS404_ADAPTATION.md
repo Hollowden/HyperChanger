@@ -15,3 +15,5 @@ Local experimental APK packaging replaces only lib/arm64-v8a/libhyperchanger_fol
 Personal signature differs from upstream. Do not uninstall an existing installation without backing up module settings and planning a rollback.
 
 Static device-binary validation: all six existing entry guards pass for paint, raster, render, keyguard (24 instructions), Dart capture and Dart icon. This confirms hook entry addresses, not runtime behavior. Official in-app ZIP export completed before installation changes; no personal backup is tracked.
+
+Runtime correction: engine object vptrs use the Itanium address point (symbol RVA + 16), not the start of _ZTV. Updated the three new-engine vtable RVAs. After replacing the APK and restarting only the launcher, reveal hooks report ready and bind an existing Dock glass layer (nonzero ID). Awaiting manual lock/unlock visual verification; phone reboot not performed.
