@@ -1,3 +1,8 @@
+> **个人适配分支 · 开发中**
+>
+> 基于 [ColdP/HyperChanger](https://github.com/ColdP/HyperChanger)，保留原作者署名与 AGPL-3.0 许可证。研究 OS4.0.4.0.XPBCNXM / 桌面 8583 的 Dock 解锁动画适配，非官方版本。
+>
+> 当前只恢复了引擎符号对应地址，尚未完成 ABI 校验与实机测试，请勿视为可用修复。
 <p align="center">
   <img src="app/src/main/res/drawable/ic_hyperchanger_full.png" alt="HyperChanger 图标" width="128">
 </p>
