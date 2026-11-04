@@ -6,6 +6,35 @@
 >
 > 安装包使用个人签名，不能直接覆盖官方签名版。替换前请导出设置并备份。技术细节见 [适配记录](OS404_ADAPTATION.md)。
 
+
+<p align="center">
+  <img src="app/src/main/res/drawable/ic_hyperchanger_full.png" alt="HyperChanger 图标" width="128">
+</p>
+
+<h1 align="center"><strong>HyperChanger</strong></h1>
+
+<p align="center">随心塑造你的 HyperOS 4。</p>
+
+<p align="center">
+  <strong>简体中文</strong> |
+  <a href="README_en.md">English</a> |
+  <a href="README_ja.md">日本語</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ColdP/HyperChanger/releases">发布版本</a> |
+  <a href="https://t.me/HyperChanger">Telegram 群组</a> |
+  <a href="https://qm.qq.com/q/rQhbQbiYLe">QQ 群：429188055</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/ColdP/HyperChanger?style=flat-square" alt="发布版本">
+  <img src="https://img.shields.io/badge/Platform-Android-green?style=flat-square&logo=android" alt="平台">
+  <img src="https://img.shields.io/badge/minSdk-35-blue?style=flat-square" alt="最低 SDK">
+  <img src="https://img.shields.io/badge/targetSdk-37-blue?style=flat-square" alt="目标 SDK">
+  <img src="https://img.shields.io/badge/License-AGPL--3.0-yellow?style=flat-square" alt="许可证">
+</p>
+
 ## 项目简介
 
 HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应用配置系统界面、通知与控制中心、锁屏、桌面、系统设置、背屏及受支持应用的外观和行为。模块需要 Root 权限，通过 Hook 修改现有组件。
