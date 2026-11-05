@@ -617,6 +617,7 @@ public final class IosNotificationCenterPresentation {
     static boolean shouldPassHeaderTouch(MotionEvent event) {
         if (!isActive() || stack == null || event == null
                 || event.getActionMasked() != MotionEvent.ACTION_DOWN) return false;
+        if (notificationHeaderBar != null && IosShadeHotPath.hitClear(notificationHeaderBar.clear, event)) return true;
         try {
             Object row = stack.getClass().getMethod("getChildAtRawPosition", float.class, float.class)
                     .invoke(stack, event.getRawX(), event.getRawY());
@@ -900,7 +901,7 @@ public final class IosNotificationCenterPresentation {
         long now = SystemClock.uptimeMillis();
         boolean retryMissing = clearButtonStates.isEmpty()
                 && now - lastClearButtonScanUptime >= 1000L;
-        if (clearButtonScanNeeded || retryMissing) {
+        if ((clearButtonScanNeeded || retryMissing) && IosShadeHotPath.allowClearScan(window, now)) {
             lastClearButtonScanUptime = now;
             ArrayList<View> candidates = new ArrayList<>();
             collectClearButtons(window, candidates);
@@ -1022,6 +1023,7 @@ public final class IosNotificationCenterPresentation {
         }
         ensureNotificationHeader();
         if (notificationHeaderBar == null || stack.getHeight() == 0) return;
+        IosShadeHotPath.raiseHeader(notificationHeaderBar);
         int[] panelPoint = PANEL_POINT;
         panel.getLocationInWindow(panelPoint);
         int width = landscapeLayout ? landscapeStackWidth(stack) : ViewGroup.LayoutParams.MATCH_PARENT;
@@ -1088,31 +1090,7 @@ public final class IosNotificationCenterPresentation {
 
     private static void performNativeClear() {
         findClearButton();
-        if (window != null && nativeClearAction != null && nativeDismissView != null
-                && nativeDismissView.getRootView() == window.getRootView()) {
-            try {
-                nativeClearAction.onClick(nativeDismissView);
-            } catch (Throwable error) {
-                Xp.log(TAG + "native clear action unavailable: " + error);
-            }
-        }
-        // The captured view listener can return without clearing while the custom bar owns
-        // the visible control. Always drive the live stack as well when it is available.
-        if (stack != null) {
-            try {
-                Xp.callMethod(stack, "clearNotifications", 0, true, true);
-                return;
-            } catch (Throwable error) {
-                Xp.log(TAG + "notification stack clear unavailable: " + error);
-            }
-        }
-        if (clearButton != null) {
-            try {
-                clearButton.performClick();
-            } catch (Throwable error) {
-                Xp.log(TAG + "clear-all view click unavailable: " + error);
-            }
-        }
+        IosShadeHotPath.clear(window, stack, nativeDismissView, nativeClearAction, clearButton);
     }
 
     private static void syncLandscapeClockHeight() {
@@ -1282,18 +1260,7 @@ public final class IosNotificationCenterPresentation {
         if (clock == null || host == null || progress <= 0f) return;
         if (clock.getVisibility() != View.VISIBLE) clock.setVisibility(View.VISIBLE);
         if (hostedClockMinuteViews == null || hasDetachedClockMinuteView()) {
-            hostedClockMinuteViews = new ArrayList<>();
-            String[] names = {"minute_view", "minute1", "minute2", "time_minute",
-                    "time_minute_right", "current_time_minute_style1", "time_below_view_minute1",
-                    "time_below_view_minute2", "tv_minute", "hour_view", "hour1", "hour2",
-                    "time_hour", "time_hour_left", "time_hour_right",
-                    "current_time_hour_style1", "tv_hour"};
-            for (String name : names) {
-                View minute = findDescendantByEntryName(clock, name);
-                if (minute != null && !hostedClockMinuteViews.contains(minute)) {
-                    hostedClockMinuteViews.add(minute);
-                }
-            }
+            hostedClockMinuteViews = IosShadeHotPath.findClockParts(clock);
         }
         for (View minute : hostedClockMinuteViews) {
             for (View current = minute; current != null; ) {
@@ -1879,6 +1846,8 @@ public final class IosNotificationCenterPresentation {
 
             clear = new ClearButtonView(context);
             clear.setOnClickListener(v -> performNativeClear());
+            IosShadeHotPath.bindClear(clear);
+            IosShadeClearGesture.install(Xp.api(), context.getClassLoader());
             clear.setContentDescription(localized(context, "清除", "Clear", "消去"));
             setOnTouchListener((view, event) -> {
                 if (!isInsideClear(event.getX(), event.getY())) return false;
