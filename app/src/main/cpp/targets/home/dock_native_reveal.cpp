@@ -180,6 +180,9 @@ void render(void *engine, int64_t view, void *tree_owner, float density) {
 }
 void keyguard(void *watcher, bool locked) {
     const bool was_locked = keyguard_locked.exchange(locked, std::memory_order_acq_rel);
+    if (locked != was_locked) {
+        __android_log_print(ANDROID_LOG_INFO, kTag, "keyguard showing=%d; Dock pre-entry gate", locked);
+    }
     if (locked) {
         epoch.fetch_add(1, std::memory_order_acq_rel);
         end_ns.store(0, std::memory_order_release);
