@@ -37,6 +37,10 @@ public final class IosShadeClearGesture implements XposedInterface.Hooker {
         }
         return true;
     }
+    private static Object proceed(XposedInterface.Chain chain,MotionEvent event) throws Throwable {
+        IosShadeElastic.touch(event);
+        return chain.proceed();
+    }
     @Override public Object intercept(XposedInterface.Chain chain) throws Throwable {
         MotionEvent event=(MotionEvent)chain.getArg(0);
         int action=event.getActionMasked();
@@ -46,7 +50,7 @@ public final class IosShadeClearGesture implements XposedInterface.Hooker {
             pressed=new WeakReference<>(null); pointer=-1;
             if(!(chain.getThisObject() instanceof View) || !visible(view)
                 || ((View)chain.getThisObject()).getRootView()!=view.getRootView()
-                || !view.getGlobalVisibleRect(bounds) || !bounds.contains((int)event.getRawX(),(int)event.getRawY())) return chain.proceed();
+                || !view.getGlobalVisibleRect(bounds) || !bounds.contains((int)event.getRawX(),(int)event.getRawY())) return proceed(chain,event);
             pressed=new WeakReference<>(view); pointer=event.getPointerId(0);
             startX=event.getRawX(); startY=event.getRawY(); cancelled=false;
             view.setPressed(true);
@@ -54,7 +58,7 @@ public final class IosShadeClearGesture implements XposedInterface.Hooker {
             return true;
         }
         View button=pressed.get();
-        if(pointer<0 || button==null) return chain.proceed();
+        if(pointer<0 || button==null) return proceed(chain,event);
         if(event.getPointerCount()>1 || action==MotionEvent.ACTION_CANCEL || !visible(button) || button!=view) cancelled=true;
         int slop=ViewConfiguration.get(button.getContext()).getScaledTouchSlop();
         if(Math.abs(event.getRawX()-startX)>slop || Math.abs(event.getRawY()-startY)>slop) cancelled=true;

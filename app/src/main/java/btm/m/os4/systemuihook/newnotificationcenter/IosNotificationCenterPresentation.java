@@ -720,6 +720,7 @@ public final class IosNotificationCenterPresentation {
     };
 
     private static void sync() {
+        IosShadeElastic.beforeSync();
         if (host == null || panel == null || progress <= 0f) return;
         View sheet = wallpaperSheet;
         if (sheet != null && sheet.isAttachedToWindow()) {
@@ -785,6 +786,7 @@ public final class IosNotificationCenterPresentation {
         syncNotificationHeader();
         syncNotifications();
         syncClockInfo();
+        IosShadeMotion.apply(clock, stack, panel, progress, clockInfo);
     }
 
     private static void hideNativeHeader() {
@@ -1593,6 +1595,9 @@ public final class IosNotificationCenterPresentation {
                     notificationY = Math.min(restingNotificationY, Math.max(lower, firstTop));
                 }
             } else {
+                // Rows can move down after dismissals. Release the old compressed
+                // baseline once native scrolling has returned to the resting top.
+                restingNotificationY = Math.max(restingNotificationY, notificationY);
                 notificationY = restingNotificationY;
             }
         }
