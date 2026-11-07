@@ -5,6 +5,7 @@ package btm.m.os4.systemuihook
 import btm.m.os4.systemuihook.cloudcontrol.CloudControlPage
 import btm.m.os4.systemuihook.joyose.JoyoseSettings
 import btm.m.os4.systemuihook.joyose.JoyoseSettingsStore
+import btm.m.os4.systemuihook.privacy.PrivacyGuardPage
 import btm.m.os4.systemuihook.newnotificationcenter.IosNotificationCenterSettingsStore
 import btm.m.os4.systemuihook.newnotificationcenter.IosNotificationExpansionSettingsStore
 import btm.m.os4.systemuihook.newnotificationcenter.IosNotificationRefractionSettingsStore
@@ -58,6 +59,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.animateColorAsState
@@ -88,6 +90,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -118,14 +121,17 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
@@ -150,6 +156,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.core.view.WindowCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.core.graphics.createBitmap
 import kotlinx.coroutines.Dispatchers
@@ -205,6 +214,7 @@ import top.yukonga.miuix.kmp.icon.extended.Import
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.MoreCircle
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.SelectAll
 import top.yukonga.miuix.kmp.icon.extended.Home
@@ -319,14 +329,20 @@ private enum class PageId {
     SOFTWARE_UPDATE, UPDATE_LOG, REAR_SCREEN, REAR_SCREEN_SHELL, REAR_CUSTOM_CENTER, REAR_MUSIC_APPS, REAR_SWIPE_APP, REAR_MINI_PLAYER, OTHER, SIDEBAR, SIDEBAR_GLASS, PERSONAL_ASSISTANT, ASSISTANT_WIDGET_GLASS, CONTACTS_DIALER, CONTACTS_DIALER_BACKGROUND, PORTAL, PORTAL_MATERIAL, APP_NAVIGATION, RESTART_SCOPES, DISCLAIMER, SIMULATE_MEDIA_NOTIFICATION, SIMULATE_ISLAND, MODULE_PRESET_IMPORT_PREVIEW,
     STATUS_MOBILE_NETWORK_TYPE_TUNING,
     CLOUD_CONTROL,
+    PRIVACY_GUARD,
 }
 
 private data class CategorySearchItem(
     val title: String,
     val description: String,
     val scopes: Set<ScopeApplication>,
-    val page: PageId,
+    val page: PageId? = null,
+    val moduleSetting: Boolean = false,
+    val settingsSection: ModuleSettingsSection? = null,
+    val keywords: String = "",
 )
+
+private enum class ModuleSettingsSection(val listIndex: Int) { MODULE(1), APPEARANCE(2), INFORMATION(3) }
 
 private data class CategoryPageEntry(
     val title: String,
@@ -434,7 +450,7 @@ private fun categorySearchItems(): List<CategorySearchItem> = listOf(
         tr("iosNotificationCenter", "iOS 风格通知中心"),
         tr("iosNotificationCenterSummary", "下拉时展示圆角壁纸面板、锁屏时钟及景深效果。动态壁纸暂不支持。"),
         setOf(ScopeApplication.SYSTEM_UI),
-        PageId.SHADE,
+        PageId.IOS_NOTIFICATION_CENTER,
     ),
     CategorySearchItem(
         tr("iosNotificationHideClear", "隐藏通知中心清除按钮"),
@@ -519,6 +535,7 @@ private fun categorySearchItems(): List<CategorySearchItem> = listOf(
             ScopeApplication.XIAOMI_WALLET,
             ScopeApplication.XIAOMI_HEALTH,
             ScopeApplication.LUCKIN_COFFEE,
+            ScopeApplication.REDDIT,
             ScopeApplication.TENCENT_MEETING,
             ScopeApplication.DOUSHENGSHENG,
             ScopeApplication.MEITUAN,
@@ -534,6 +551,164 @@ private fun categorySearchItems(): List<CategorySearchItem> = listOf(
         PageId.APP_NAVIGATION,
     ),
 )
+
+// These destinations use the same PageId dispatcher as normal navigation, including nested pages.
+private fun categoryDeepSearchItems(): List<CategorySearchItem> {
+    fun entry(key: String, fallback: String, page: PageId, vararg scopes: ScopeApplication) =
+        CategorySearchItem(tr(key, fallback), tr(key, fallback), scopes.toSet(), page)
+    val ui = ScopeApplication.SYSTEM_UI
+    val settings = ScopeApplication.SETTINGS
+    return listOf(
+        entry("伪装版本", "伪装版本", PageId.SYSTEM_UPDATE, ScopeApplication.SYSTEM_UPDATE),
+        entry("伪装 SOTA 版本", "伪装 SOTA 版本", PageId.SYSTEM_UPDATE, ScopeApplication.SYSTEM_UPDATE),
+        entry("控制中心", "控制中心", PageId.CONTROL, ui),
+        entry("双排信号参数微调", "双排信号参数微调", PageId.STATUS_SIGNAL_TUNING, ui),
+        entry("移动网络类型参数微调", "移动网络类型参数微调", PageId.STATUS_MOBILE_NETWORK_TYPE_TUNING, ui),
+        entry("锁屏小组件背景设置", "锁屏小组件背景设置", PageId.LOCKSCREEN_WIDGET_BACKGROUND, ui, ScopeApplication.AOD),
+        entry("歌词库", "歌词库", PageId.LYRIC_LIBRARY, ui),
+        entry("softGlassParameters", "柔光玻璃参数", PageId.SOFT_GLASS_PARAMETERS, ui),
+        entry("softGlassPresets", "柔光玻璃预设", PageId.SOFT_GLASS_PRESETS, ui),
+        entry("导航与通知预设", "导航与通知预设", PageId.SHADE_PRESETS, ui),
+        entry("联系人与拨号背景", "联系人与拨号背景", PageId.CONTACTS_DIALER_BACKGROUND, ScopeApplication.CONTACTS_DIALER),
+        entry("侧边栏玻璃参数", "侧边栏玻璃参数", PageId.SIDEBAR_GLASS, ScopeApplication.SECURITY_CENTER),
+        entry("rearScreenshotShellTitle", "背屏截图壳", PageId.REAR_SCREEN_SHELL, ScopeApplication.SUBSCREEN_CENTER),
+        entry("rearSwipeAppTitle", "背屏左滑应用", PageId.REAR_SWIPE_APP, ScopeApplication.SUBSCREEN_CENTER),
+        entry("设备信息预设", "设备信息预设", PageId.DEVICE_PROFILE_PRESETS, settings),
+        entry("设备信息云预设", "设备信息云预设", PageId.DEVICE_PROFILE_CLOUD_PRESETS, settings),
+        entry("settingsEntryAppearance", "设置入口外观", PageId.SETTINGS_ENTRY_APPEARANCE, settings),
+        entry("tutorialDeviceCard", "自定义我的设备卡片", PageId.TUTORIAL_DEVICE_CARD, settings),
+        entry("桌面材质调整", "桌面材质调整", PageId.DESKTOP_MATERIAL, ScopeApplication.DESKTOP),
+        entry("手势提示线样式自定义", "手势提示线样式自定义", PageId.GESTURE_HANDLE_STYLE, ui),
+        entry("iosNotificationClockGlass", "通知中心大时钟柔光玻璃", PageId.IOS_NOTIFICATION_CLOCK_GLASS, ui),
+        entry("iosNotificationHeaderSettings", "通知横条设置", PageId.IOS_NOTIFICATION_HEADER_SETTINGS, ui),
+        entry("islandCollapsedPage", "超级岛收起态", PageId.ISLAND_COLLAPSED, ui),
+        entry("islandExpandedPage", "超级岛展开态", PageId.ISLAND_EXPANDED, ui),
+        entry("超级岛展开态背景参数", "超级岛展开态背景参数", PageId.ISLAND_EXPANDED_BACKGROUND, ui),
+        entry("unlockIslandPage", "解锁岛", PageId.UNLOCK_ISLAND, ui),
+        entry("通知限制去除", "通知限制去除", PageId.NOTIFICATION_RESTRICTIONS, ui),
+        entry("notificationMediaCard", "媒体卡片", PageId.NOTIFICATION_MEDIA_CARD, ui),
+        entry("状态栏调整", "状态栏调整", PageId.STATUS_ADJUSTMENT, ui),
+        entry("状态栏信号自定义", "状态栏信号自定义", PageId.STATUS_SIGNAL_CUSTOMIZATION, ui),
+        entry("控制中心顶部按钮", "控制中心顶部按钮", PageId.CONTROL_CENTER_TOP_BUTTONS, ui),
+        entry("cc_layout_title", "控制中心磁贴布局自定义", PageId.CONTROL_CENTER_TILE_LAYOUT, ui),
+        entry("音乐锁屏", "音乐锁屏", PageId.LOCKSCREEN_MUSIC, ui),
+        entry("锁屏快捷功能背景", "锁屏快捷功能背景", PageId.LOCKSCREEN_SHORTCUT_BACKGROUND, ui, ScopeApplication.AOD),
+        entry("定时抬起亮屏", "定时抬起亮屏", PageId.LIFT_TO_WAKE_SCHEDULE, ui),
+        entry("自定义景深壁纸", "自定义景深壁纸", PageId.CUSTOM_DEPTH_WALLPAPER, ui, ScopeApplication.AOD),
+        entry("我的设备与全部参数", "我的设备与全部参数", PageId.DEVICE_PROFILE, settings),
+        entry("settingsEntryLabels", "自定义系统设置入口文案", PageId.SETTINGS_ENTRY_LABELS, settings),
+        entry("settingsEntryIcons", "自定义系统设置入口图标", PageId.SETTINGS_ENTRY_ICONS, settings),
+        entry("设置主界面背景", "设置主界面背景", PageId.SETTINGS_APPEARANCE_HOME, settings),
+        entry("我的设备界面背景", "我的设备界面背景", PageId.SETTINGS_APPEARANCE_DEVICE, settings),
+        entry("传送门", "传送门", PageId.PORTAL, ScopeApplication.PORTAL),
+        entry("传送门材质调整", "传送门材质调整", PageId.PORTAL_MATERIAL, ScopeApplication.PORTAL),
+        entry("环境检测", "环境检测", PageId.ENVIRONMENT_DETECTION, ScopeApplication.SECURITY_CENTER),
+        entry("cloudControlTitle", "云控", PageId.CLOUD_CONTROL, ScopeApplication.SECURITY_CENTER),
+        entry("privacyGuardTitle", "预装隐私拦截", PageId.PRIVACY_GUARD, ScopeApplication.HTML_VIEWER),
+        entry("背屏音乐控件白名单", "背屏音乐控件白名单", PageId.REAR_MUSIC_APPS, ScopeApplication.SUBSCREEN_CENTER),
+        entry("rear_mini_player_title", "在背屏启动小折叠版迷你音乐播放器", PageId.REAR_MINI_PLAYER, ScopeApplication.SUBSCREEN_CENTER),
+    )
+}
+
+// Internal application settings share the search index, but never require a hook service.
+private fun moduleSettingsSearchItems(): List<CategorySearchItem> {
+    fun entry(key: String, fallback: String, section: ModuleSettingsSection,
+        page: PageId? = null, keywords: String = "") = CategorySearchItem(
+        tr(key, fallback), tr(key, fallback), emptySet(),
+        page = page, moduleSetting = true, settingsSection = section, keywords = keywords,
+    )
+    val module = ModuleSettingsSection.MODULE
+    val appearance = ModuleSettingsSection.APPEARANCE
+    val information = ModuleSettingsSection.INFORMATION
+    return listOf(
+        entry("模块设置", "模块设置", module, keywords = "模块 应用 内部 设置 module app settings preferences"),
+        entry("searchIncludeModuleSettings", "搜索结果展示 HyperChanger 设置项", module,
+            keywords = "搜索 结果 展示 模块 设置 search results HyperChanger settings"),
+        entry("moduleSafety", "模块安全", module, PageId.MODULE_SAFETY, "安全 救砖 safety recovery safe mode"),
+        entry("safetyViewLogs", "查看日志", module, PageId.MODULE_LOGS, "日志 调试 log debug"),
+        entry("restart_scope_apps", "重启作用域应用", module, PageId.RESTART_SCOPES, "重启 作用域 restart scope apps"),
+        entry("language", "语言", module, PageId.LANGUAGE, "语言 中文 英文 日文 翻译 language translation locale"),
+        entry("隐藏桌面图标", "隐藏桌面图标", module, keywords = "隐藏 图标 hide launcher icon"),
+        entry("系统设置内模块入口", "系统设置内模块入口", module, keywords = "设置 模块 入口 settings module entry"),
+        entry("settingsAppEntryTitle", "模块入口文案", module, keywords = "入口 文案 entry label title"),
+        entry("settingsModuleEntryIcon", "模块入口图标", module, keywords = "入口 图标 entry icon"),
+        entry("preference-导入模块预设", "导入模块预设", module, keywords = "导入 预设 import preset configuration"),
+        entry("preference-导出模块预设", "导出模块预设", module, keywords = "导出 备份 预设 export backup preset"),
+        entry("preference-恢复默认配置", "恢复默认配置", module, keywords = "恢复 默认 重置 reset restore defaults"),
+        entry("主题与颜色", "主题与颜色", appearance, PageId.THEME_AND_COLOR, "主题 颜色 theme color appearance"),
+        entry("主题模式", "主题模式", appearance, PageId.THEME_AND_COLOR, "深色 浅色 夜间 theme mode dark light"),
+        entry("Monet 取色", "Monet 取色", appearance, PageId.THEME_AND_COLOR, "壁纸 动态 颜色 monet wallpaper dynamic color"),
+        entry("monet_palette", "调色盘", appearance, PageId.THEME_AND_COLOR, "调色盘 palette tonal"),
+        entry("monet_color_spec", "色彩规范", appearance, PageId.THEME_AND_COLOR, "色彩 规范 color specification 2021 2025"),
+        entry("选择颜色", "选择颜色", appearance, PageId.THEME_AND_COLOR, "自定义 颜色 custom color seed"),
+        entry("navigation_style", "底部导航栏样式", appearance, keywords = "底部 导航栏 样式 悬浮 液态 玻璃 HyperOS HarmonyOS liquid glass floating bottom navigation style"),
+        entry("底部导航栏标签显示方式", "底部导航栏标签显示方式", appearance, keywords = "导航 标签 图标 文本 navigation label icon text"),
+        entry("hyperDockedGlass", "HyperOS 底部导航栏液态玻璃", appearance, keywords = "贴边 液态 玻璃 docked navigation glass"),
+        entry("预测性返回动画", "预测性返回动画", appearance, keywords = "预测 返回 手势 predictive back gesture animation"),
+        entry("预测性返回动画最大进度", "预测性返回动画最大进度", appearance, keywords = "预测 返回 进度 predictive back maximum progress"),
+        entry("sharedViewAnimation", "一镜到底的无缝动画", appearance, keywords = "一镜到底 无缝 共享 元素 动画 seamless shared view animation"),
+        entry("关于", "关于", information, PageId.ABOUT, "关于 版本 about version"),
+        entry("软件更新", "软件更新", information, PageId.SOFTWARE_UPDATE, "软件 应用 更新 update software upgrade"),
+        entry("更新日志", "更新日志", information, PageId.UPDATE_LOG, "更新 日志 changelog release notes"),
+        entry("contributors", "贡献者", information, PageId.CONTRIBUTORS, "贡献者 contributors"),
+        entry("捐赠", "捐赠", information, PageId.DONATE, "捐赠 支持 donate support"),
+        entry("开源代码声明", "开源代码声明", information, PageId.OPEN, "开源 致谢 open source acknowledgements"),
+        entry("隐私政策", "隐私政策", information, PageId.LEGAL_PRIVACY, "隐私 政策 privacy policy"),
+        entry("用户协议", "用户协议", information, PageId.LEGAL_USER_AGREEMENT, "用户 协议 user agreement terms"),
+    )
+}
+
+// Search-only synonyms are deliberately independent of the display language.
+private fun categorySearchKeywords(page: PageId?): String = when (page) {
+    PageId.DESKTOP -> "桌面 启动器 文件夹 最近任务 launcher home folder recents"
+    PageId.DESKTOP_MATERIAL -> "桌面 材质 玻璃 模糊 launcher blur glass material"
+    PageId.SHADE -> "系统界面 通知中心 液态玻璃 手势提示线 notification shade liquid glass"
+    PageId.GESTURE_HANDLE_STYLE -> "手势提示线 小白条 gesture handle navigation bar"
+    PageId.ISLAND -> "通知 超级岛 灵动岛 dynamic island notifications"
+    PageId.ISLAND_COLLAPSED -> "超级岛 收起态 胶囊 dynamic island collapsed capsule"
+    PageId.ISLAND_EXPANDED, PageId.ISLAND_EXPANDED_BACKGROUND -> "超级岛 展开态 背景 dynamic island expanded background"
+    PageId.IOS_NOTIFICATION_CENTER -> "苹果 通知中心 分段展开 清除按钮 ios notification center"
+    PageId.IOS_NOTIFICATION_HEADER_SETTINGS -> "通知 横条 标题 清除 ios notification header clear"
+    PageId.IOS_NOTIFICATION_CLOCK_GLASS -> "通知中心 大时钟 玻璃 notification clock glass"
+    PageId.NOTIFICATION_RESTRICTIONS -> "通知 限制 黑名单 白名单 notification restrictions blacklist whitelist"
+    PageId.NOTIFICATION_MEDIA_CARD -> "通知 音乐 媒体 封面 notification music media cover"
+    PageId.STATUS -> "状态栏 控制中心 信号 电池 网速 运营商 status bar control center carrier battery"
+    PageId.STATUS_ADJUSTMENT -> "状态栏 布局 图标 秒数 status bar layout icons seconds"
+    PageId.STATUS_SIGNAL_CUSTOMIZATION -> "状态栏 信号 移动网络 双排 网络类型 status bar signal mobile network"
+    PageId.CONTROL_CENTER_TOP_BUTTONS -> "控制中心 顶部按钮 玻璃 control center top buttons glass"
+    PageId.CONTROL_CENTER_TILE_LAYOUT -> "控制中心 磁贴 布局 control center tiles layout"
+    PageId.LOCK -> "锁屏 时钟 壁纸 小组件 keyguard lockscreen clock wallpaper widgets"
+    PageId.LOCKSCREEN_MUSIC -> "锁屏 音乐 专辑 封面 歌词 lockscreen music album cover lyrics"
+    PageId.LOCKSCREEN_CAPSULE -> "锁屏 胶囊 通知 媒体 lockscreen capsule notification media"
+    PageId.LOCKSCREEN_WIDGET_EDITOR -> "锁屏 小组件 编辑 电量 天气 lockscreen widgets editor battery weather"
+    PageId.LOCKSCREEN_SHORTCUT_BACKGROUND -> "锁屏 快捷功能 背景 手电筒 相机 lockscreen shortcuts flashlight camera"
+    PageId.UNLOCK_ISLAND -> "解锁岛 指纹 人脸 动画 unlock island fingerprint face animation"
+    PageId.LIFT_TO_WAKE_SCHEDULE -> "抬起亮屏 时间段 定时 raise lift wake schedule"
+    PageId.CUSTOM_DEPTH_WALLPAPER -> "锁屏 景深 壁纸 depth wallpaper lockscreen"
+    PageId.RASTER_WALLPAPER -> "光栅 壁纸 倾斜 raster wallpaper tilt"
+    PageId.SYSTEM_FRAMEWORK -> "系统框架 小窗 音量 截图 system framework floating window volume screenshot"
+    PageId.SYSTEM_SETTINGS -> "系统设置 我的设备 外观 settings device appearance"
+    PageId.DEVICE_PROFILE -> "我的设备 全部参数 设备信息 型号 device profile model information"
+    PageId.SETTINGS_ENTRY_LABELS -> "设置 入口 文案 名称 settings entry labels names"
+    PageId.SETTINGS_ENTRY_ICONS -> "设置 入口 图标 settings entry icons"
+    PageId.SETTINGS_APPEARANCE_HOME, PageId.SETTINGS_APPEARANCE_DEVICE -> "设置 背景 壁纸 模糊 settings background wallpaper blur"
+    PageId.SUPER_XIAOAI -> "超级小爱 输入法 悬浮窗口 super xiaoai assistant ime keyboard"
+    PageId.PORTAL, PageId.PORTAL_MATERIAL -> "传送门 背景 卡片 识屏 portal background card ocr"
+    PageId.CAMERA, PageId.CAMERA_PALETTE -> "相机 相册 编辑 调色板 camera gallery editor palette"
+    PageId.SYSTEM_UPDATE -> "系统更新 自动更新 伪装版本 版本伪装 伪装SOTA版本 禁用更新 移除OTA限制 ota system updater version spoof fake version"
+    PageId.REAR_SCREEN, PageId.REAR_CUSTOM_CENTER -> "背屏 副屏 自定义 中心 rear subscreen display custom center"
+    PageId.REAR_MUSIC_APPS -> "背屏 音乐 白名单 rear music whitelist"
+    PageId.REAR_MINI_PLAYER -> "背屏 迷你 播放器 rear mini player"
+    PageId.SIDEBAR -> "侧边栏 游戏 视频 工具箱 sidebar game video toolbox"
+    PageId.PERSONAL_ASSISTANT, PageId.ASSISTANT_WIDGET_GLASS -> "负一屏 小部件 壁纸 模糊 app vault assistant widget wallpaper blur"
+    PageId.CONTACTS_DIALER -> "拨号 通话 联系人 背景 contacts dialer call background"
+    PageId.APP_NAVIGATION -> "应用 底部导航 底栏 标签栏 liquid glass bottom navigation tab bar"
+    PageId.ENVIRONMENT_DETECTION -> "环境检测 root lsposed xposed bootloader environment detection"
+    PageId.CLOUD_CONTROL -> "云控 cloud control"
+    PageId.PRIVACY_GUARD -> "预装 隐私 拦截 privacy guard"
+    PageId.OTHER -> "其他 屏幕录制 健康 互传 screen recorder health airdrop"
+    else -> ""
+}
 
 private data class CustomRearScreenApp(
     val productId: String,
@@ -650,6 +825,12 @@ private fun Root(
     DisposableEffect(sharedViewAnimations) {
         val dispose = sharedViewAnimations.observe()
         onDispose { dispose() }
+    }
+    LaunchedEffect(service) {
+        service?.let {
+            ModuleSearchSettings.sync(context.getSharedPreferences(REMOTE_PREFERENCE_GROUP, Context.MODE_PRIVATE),
+                it.getRemotePreferences(REMOTE_PREFERENCE_GROUP))
+        }
     }
     LaunchedEffect(service) { service?.let(sharedViewAnimations::syncRemote) }
     var pendingRestartTargets by remember { mutableStateOf(emptySet<ScopeApplication>()) }
@@ -1010,6 +1191,10 @@ private fun Root(
             restartTracker.withoutTracking {
                 hooks.syncRemote(it)
                 SidebarSettingsStore(context).syncRemote(it)
+                SidebarAppearanceSettingsStore(context).syncRemote(it)
+                SidebarColumnSpacingSettingsStore(context).syncRemote(it)
+                SidebarShapeSettingsStore(context).syncRemote(it)
+                SidebarIconCountSettingsStore(context).syncRemote(it)
                 SidebarFeatureSettingsStore(context).syncRemote(it)
                 PersonalAssistantSettingsStore(context).syncRemote(it)
                 WidgetGlassSettingsStore(context).syncRemote(it)
@@ -1021,6 +1206,8 @@ private fun Root(
                 NotificationTextColorSettingsStore(context).syncRemote(it)
                 ControlCenterRadiusSettingsStore(context).syncRemote(it)
                 ControlCenterTopButtonsGlassSettingsStore(context).syncRemote(it)
+                ControlCenterTopButtonsPlacementSettingsStore(context).syncRemote(it)
+                ControlCenterTopButtonsGeometrySettingsStore(context).syncRemote(it)
                 SuperXiaoAiInputGlassSettingsStore(context).syncRemote(it)
                 RearScreenGestureSettingsStore(context).syncRemote(it)
                 RearMiniPlayerSettingsStore(context).syncRemote(it)
@@ -1616,6 +1803,14 @@ private fun Shell(
     )
     val seamlessEntry = seamless.entries[pageStack.lastIndex]
     val backdrop = rememberLayerBackdrop()
+    var homeSearchActive by remember { mutableStateOf(false) }
+    var homeSearchExpanded by remember { mutableStateOf(false) }
+    var homeSearchProgress by remember { mutableFloatStateOf(0f) }
+    var moduleSearchSection by remember { mutableStateOf<ModuleSettingsSection?>(null) }
+    var moduleSearchTabSwitch by remember { mutableStateOf(false) }
+    val moduleSearchReveal = remember { Animatable(0f) }
+    val searchNavigationScope = rememberCoroutineScope()
+    var homeSearchAnchor by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     val maxBackProgress = settings.predictiveBackProgress.coerceIn(10, 100) / 100f
     val gestureBlur = if (seamlessEntry != null) 12f * seamlessEntry.progress.value
         else 12f - 8f * (backState.gestureProgress / maxBackProgress).coerceIn(0f, 1f)
@@ -1686,22 +1881,48 @@ private fun Shell(
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = {
-                    val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                    (slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { direction * it / 7 } + fadeIn(tween(210)) + scaleIn(tween(280), initialScale = .985f)) togetherWith
-                        (slideOutHorizontally(tween(230, easing = FastOutSlowInEasing)) { -direction * it / 3 } + fadeOut(tween(180)) + scaleOut(tween(230), targetScale = .975f))
+                    if (moduleSearchTabSwitch) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                        (slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { direction * it / 7 } + fadeIn(tween(210)) + scaleIn(tween(280), initialScale = .985f)) togetherWith
+                            (slideOutHorizontally(tween(230, easing = FastOutSlowInEasing)) { -direction * it / 3 } + fadeOut(tween(180)) + scaleOut(tween(230), targetScale = .975f))
+                    }
                 },
                 label = "mainTabNavigation",
                 modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface),
             ) { currentTab ->
             val tabBlurRadius by transition.animateFloat(
-                transitionSpec = { tween(280, easing = FastOutSlowInEasing) },
+                transitionSpec = { if (moduleSearchTabSwitch) snap() else tween(280, easing = FastOutSlowInEasing) },
                 label = "mainTabBlur",
             ) { state -> if (state == EnterExitState.Visible) 0f else 12f }
-            Box(Modifier.fillMaxSize().blur(tabBlurRadius.dp)) {
+            Box(Modifier.fillMaxSize().blur((tabBlurRadius + if (currentTab == Tab.SETTINGS) moduleSearchReveal.value else 0f).dp)) {
                 when (currentTab) {
                     Tab.CATEGORY -> CategoryHome(
                         connected = service != null,
                         open = openRootPage,
+                        searchMounted = homeSearchActive,
+                        searchExpanded = homeSearchExpanded,
+                        searchAnchor = homeSearchAnchor,
+                        onSearchExpandedChange = { homeSearchExpanded = it },
+                        onSearchClosed = { homeSearchActive = false; homeSearchProgress = 0f },
+                        onSearchProgress = { homeSearchProgress = it },
+                        searchNavigationStyle = navigationSettings.style,
+                        onOpenModuleSettings = { section, destination ->
+                            searchNavigationScope.launch {
+                                moduleSearchReveal.snapTo(3f)
+                                moduleSearchTabSwitch = true
+                                moduleSearchSection = section
+                                tab = Tab.SETTINGS
+                                homeSearchActive = false
+                                homeSearchExpanded = false
+                                homeSearchProgress = 0f
+                                withFrameNanos { }
+                                destination?.let(openRootPage)
+                                moduleSearchReveal.animateTo(0f, tween(140, easing = FastOutSlowInEasing))
+                                moduleSearchTabSwitch = false
+                            }
+                        },
                     )
                     Tab.SETTINGS -> SettingsHome(
                         settings,
@@ -1717,6 +1938,8 @@ private fun Shell(
                         onImportModulePreset,
                         onExportModulePreset,
                         onResetModulePreset,
+                        searchSection = moduleSearchSection,
+                        onSearchSectionConsumed = { moduleSearchSection = null },
                     )
                 }
             }
@@ -1729,6 +1952,15 @@ private fun Shell(
             navigationSettings,
             backdrop,
             Modifier.align(Alignment.BottomCenter).blur(baseCoveredBlur.dp),
+            onSearch = {
+                if (homeSearchAnchor.width > 0f) {
+                    homeSearchActive = true
+                    homeSearchExpanded = true
+                }
+            },
+            onSearchPositioned = { if (!homeSearchActive) homeSearchAnchor = it },
+            searchMounted = homeSearchActive,
+            searchProgress = homeSearchProgress,
         )
         AnimatedVisibility(
             visible = page != null,
@@ -1864,6 +2096,7 @@ private fun Shell(
             onDismiss = onDismissModulePresetResetDialog,
             onConfirm = onConfirmModulePresetReset,
         )
+        RestartFailureDialog()
     }
     }
     }
@@ -1876,46 +2109,83 @@ private fun BottomBar(
     settings: HookSettings,
     navigationSettings: ModuleNavigationSettings,
     backdrop: Backdrop,
-    modifier: Modifier
+    modifier: Modifier,
+    onSearch: () -> Unit,
+    onSearchPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
+    searchMounted: Boolean,
+    searchProgress: Float,
 ) {
     val view = LocalView.current
-    val monetAccentColor by animateColorAsState(
-        targetValue = MiuixTheme.colorScheme.primary,
-        animationSpec = tween(420, easing = FastOutSlowInEasing),
-        label = "bottomBarMonetAccent",
-    )
+    val monetAccentColor by animateColorAsState(MiuixTheme.colorScheme.primary,
+        tween(420, easing = FastOutSlowInEasing), label = "bottomBarMonetAccent")
     val index = remember { mutableIntStateOf(tab.ordinal) }
     LaunchedEffect(tab) { index.intValue = tab.ordinal }
     val tabs = Tab.entries.mapIndexed { i, item ->
-        val title = if (item == Tab.CATEGORY) {
-            tr("tab_home", tr("首页", "首页"))
-        } else {
-            tr("tab_settings", tr("设置", "设置"))
+        HostTab(if (item == Tab.CATEGORY) tr("tab_home", tr("首页", "首页"))
+            else tr("tab_settings", tr("设置", "设置")), "os4.$i") {
+            if (!searchMounted) { index.intValue = i; select(item) }
         }
-        HostTab(title, "os4.$i") { index.intValue = i; select(item) }
     }
-    Box(
-        modifier.fillMaxWidth().height(if (navigationSettings.style == "hyper_os") 76.dp else 100.dp),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        CustomNavigation(
-            sourceView = view,
-            tabs = tabs,
-            selectedIndex = index,
-            blurRadius = if (navigationSettings.style == "liquid_glass") 3 else 18,
-            labelMode = navigationSettings.labelMode,
-            navigationStyle = navigationSettings.style,
-            advancedMaterial = true,
-            colorMode = settings.themeMode,
-            accentColorOverride = monetAccentColor,
-            material = rememberModuleNavigationMaterial(navigationSettings.style),
-            hyperDockedLiquidGlassEnabled = rememberHyperDockedGlassEnabled(),
-            hyperDockedAccentEnabled = true,
-            liquidBottomSpacingDp = 0,
-            onHostPreDraw = {},
-            backdropOverride = backdrop,
-            tabImageVector = { i -> if (i == Tab.CATEGORY.ordinal) MiuixIcons.Regular.Home else MiuixIcons.Regular.Settings }
+    val docked = navigationSettings.style == "hyper_os"
+    val liquid = navigationSettings.style == "liquid_glass"
+    val reveal by animateFloatAsState(if (tab == Tab.CATEGORY) 1f else 0f,
+        tween(480, easing = FastOutSlowInEasing), label = "navigationSearchReveal")
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val barHeight = (72f * .82f * .95f).dp
+    val navExit = searchPhase(searchProgress, 0f, .65f)
+    BoxWithConstraints(modifier.fillMaxWidth().height(if (docked) 140.dp + navInset else 100.dp + navInset)) {
+        val barWidth = maxWidth * (.53f * .82f * 1.12f * .95f)
+        val gap = 8.dp
+        val buttonSize = if (docked) 60.dp else barHeight
+        val shift = if (docked) 0.dp else -(buttonSize + gap) / 2 * reveal
+        val right = maxWidth / 2 + barWidth / 2 + shift
+        val centerY = maxHeight - navInset - (8f * .82f).dp - barHeight / 2
+        val buttonLeft = if (docked) maxWidth - 24.dp - buttonSize else right + gap + 24.dp * (1f - reveal)
+        val buttonTop = if (docked) maxHeight - navInset - 76.dp - buttonSize else centerY - buttonSize / 2
+        // Existing size overrides measure the real surfaces; host app defaults stay intact.
+        val widthFactor = if (liquid) barWidth.value / ((maxWidth.value - 28f) * .53f * .82f * 1.10f) else 1.12f * .95f
+        val heightFactor = if (liquid) barHeight.value / 64f else .95f
+        val dimensions = btm.m.liquidglass.NavigationScaleSettings.Settings(
+            widthEnabled = true, widthHundredths = ((widthFactor - 1f) * 10000f).roundToInt(),
+            heightEnabled = true, heightHundredths = ((heightFactor - 1f) * 10000f).roundToInt(),
         )
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            translationX = shift.toPx()
+            translationY = navExit * (barHeight + navInset + 24.dp).toPx() + if (liquid) .44.dp.toPx() else 0f
+            alpha = 1f - navExit
+        }.blur((navExit * 10f).dp)) {
+            CustomNavigation(
+                sourceView = view, tabs = tabs, selectedIndex = index,
+                blurRadius = if (liquid) 3 else 18,
+                labelMode = navigationSettings.labelMode, navigationStyle = navigationSettings.style,
+                advancedMaterial = true, colorMode = settings.themeMode,
+                accentColorOverride = monetAccentColor,
+                material = rememberModuleNavigationMaterial(navigationSettings.style),
+                dimensionScale = dimensions,
+                hyperDockedLiquidGlassEnabled = rememberHyperDockedGlassEnabled(),
+                hyperDockedAccentEnabled = true, liquidBottomSpacingDp = 7,
+                onHostPreDraw = {}, backdropOverride = backdrop,
+                tabImageVector = { i -> if (i == Tab.CATEGORY.ordinal) MiuixIcons.Regular.Home else MiuixIcons.Regular.Settings },
+                tabIconContent = { i, color ->
+                    Image(if (i == Tab.CATEGORY.ordinal) MiuixIcons.Regular.Home else MiuixIcons.Regular.Settings,
+                        null, Modifier.size(28.dp), colorFilter = ColorFilter.tint(color))
+                },
+            )
+        }
+        if (!searchMounted && reveal > .001f) {
+            SearchRoundButton(
+                backdrop = backdrop, size = buttonSize,
+                primary = docked, closeProgress = 0f, navigationStyle = navigationSettings.style,
+                motionAlpha = reveal, motionBlur = ((1f - reveal) * 6f).dp,
+                modifier = Modifier.offset(buttonLeft, buttonTop)
+                    .graphicsLayer {
+                        translationY = (1f - reveal) * 16.dp.toPx()
+                    }
+                    .onGloballyPositioned { onSearchPositioned(it.boundsInWindow()) },
+                enabled = tab == Tab.CATEGORY && reveal > .98f,
+                onClick = onSearch,
+            )
+        }
     }
 }
 
@@ -1923,35 +2193,71 @@ private fun BottomBar(
 private fun CategoryHome(
     connected: Boolean,
     open: (PageId) -> Unit,
+    searchMounted: Boolean,
+    searchExpanded: Boolean,
+    searchAnchor: androidx.compose.ui.geometry.Rect,
+    onSearchExpandedChange: (Boolean) -> Unit,
+    onSearchClosed: () -> Unit,
+    onSearchProgress: (Float) -> Unit,
+    searchNavigationStyle: String,
+    onOpenModuleSettings: (ModuleSettingsSection?, PageId?) -> Unit,
 ) {
+    val resultNavigationScope = rememberCoroutineScope()
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    var navigatingFromSearch by remember { mutableStateOf(false) }
+    var searchProgress by remember { mutableFloatStateOf(0f) }
     var query by rememberSaveable { mutableStateOf("") }
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    val searchItems = categorySearchItems()
-    val normalizedQuery = query.trim().lowercase(Locale.getDefault())
-    val filteredItems = if (normalizedQuery.isBlank()) {
-        emptyList()
-    } else {
-        searchItems.filter { item ->
-            buildString {
-                append(item.title)
-                append('\n')
-                append(item.description)
-                item.scopes.forEach { scope ->
-                    append('\n')
-                    append(tr(scope.title, scope.title))
-                    append('\n')
-                    append(scope.packageName)
-                }
-            }.lowercase(Locale.getDefault()).contains(normalizedQuery)
-        }
+    val includeModuleSettings = rememberSearchIncludesModuleSettings()
+    val searchItems = categorySearchItems() + categoryDeepSearchItems() +
+        if (includeModuleSettings) moduleSettingsSearchItems() else emptyList()
+    val catalog = rememberSettingsSearchCatalog(activeLanguageStrings)
+    val documents = searchItems.map { item ->
+        SettingsSearchDocument(
+            item, item.title, item.description,
+            if (item.moduleSetting) listOf(tr("category_search_module_scope", "HyperChanger 设置"), BuildConfig.APPLICATION_ID)
+                else item.scopes.map { tr(it.title, it.title) + " " + it.packageName },
+            item.keywords + " " + categorySearchKeywords(item.page),
+            features = catalog?.get(item.page?.name)?.texts.orEmpty(),
+            destination = item.page?.name ?: "settings:${item.settingsSection?.name}",
+        )
     }
-    val groupedItems = filteredItems
-        .flatMap { item -> item.scopes.map { scope -> scope to item } }
-        .groupBy({ it.first }, { it.second })
-        .mapValues { (_, items) -> items.distinctBy { it.title to it.page } }
-
+    val matches = rememberSettingsSearch(documents, query)
+    val results = (if (query.isBlank()) emptyList() else matches.orEmpty()).map { item ->
+        HomeSearchResult(
+            key = (item.page?.name ?: item.settingsSection?.name.orEmpty()) + ":" + item.title,
+            title = item.title,
+            description = SettingsSearchIndex.preferenceTitle(query,
+                catalog?.get(item.page?.name)?.titles.orEmpty(), item.title),
+            scopes = if (item.moduleSetting) tr("category_search_module_scope", "HyperChanger 设置")
+                else item.scopes.joinToString(" · ") { tr(it.title, it.title) },
+            requiresService = !item.moduleSetting,
+            onClick = {
+                if (!navigatingFromSearch) {
+                    navigatingFromSearch = true
+                    focus.clearFocus()
+                    keyboard?.hide()
+                    if (item.moduleSetting) {
+                        onOpenModuleSettings(item.settingsSection, item.page)
+                        query = ""
+                    } else item.page?.let { destination ->
+                        // Keep the search surface in place until the incoming page covers it.
+                        open(destination)
+                        resultNavigationScope.launch {
+                            delay(300)
+                            onSearchClosed()
+                            searchProgress = 0f
+                            query = ""
+                            navigatingFromSearch = false
+                        }
+                    }
+                }
+            },
+        )
+    }
     AppPage(
         "HyperChanger",
+        coveredBlur = (3f * searchProgress).dp,
         actions = {
             GlassToolbarIconButton(
                 icon = MiuixIcons.Regular.Refresh,
@@ -1959,162 +2265,74 @@ private fun CategoryHome(
                 onClick = { open(PageId.RESTART_SCOPES) },
             )
         },
+        overlay = {
+            if (searchMounted && searchAnchor.width > 0f) {
+                HomeSearchOverlay(
+                    expanded = searchExpanded,
+                    onProgress = { searchProgress = it; onSearchProgress(it) },
+                    primaryButton = searchNavigationStyle == "hyper_os",
+                    navigationStyle = searchNavigationStyle,
+                    interactionEnabled = !navigatingFromSearch,
+                    anchorInWindow = searchAnchor,
+                    query = query,
+                    onQueryChange = { query = it },
+                    results = results,
+                    searching = matches == null || catalog == null,
+                    enabled = connected,
+                    onDismiss = { if (!navigatingFromSearch) onSearchExpandedChange(false) },
+                    onClosed = {
+                        onSearchClosed()
+                        searchProgress = 0f
+                        query = ""
+                        navigatingFromSearch = false
+                    },
+                )
+            }
+        },
     ) { padding, scroll ->
         AppList(padding, scroll) {
             item {
-                CategorySearchBar(
-                    query = query,
-                    expanded = expanded,
-                    onQueryChange = { query = it },
-                    onExpandedChange = { expanded = it },
-                    onCancel = { query = ""; expanded = false },
-                    collapsedFraction = scroll.state.collapsedFraction.coerceIn(0f, 1f),
+                CategoryGroup(
+                    title = tr("系统界面", "系统界面"),
+                    entries = listOf(
+                        CategoryPageEntry(tr("系统界面与材质调整", "系统界面与材质调整"), PageId.SHADE),
+                        CategoryPageEntry(tr("桌面", "桌面"), PageId.DESKTOP),
+                        CategoryPageEntry(tr("通知与超级岛", "通知与超级岛"), PageId.ISLAND),
+                        CategoryPageEntry(tr("状态栏与控制中心", "状态栏与控制中心"), PageId.STATUS),
+                        CategoryPageEntry(tr("锁屏", "锁屏"), PageId.LOCK),
+                    ),
+                    enabled = connected,
+                    open = open,
                 )
             }
-            if (normalizedQuery.isBlank()) {
-                item {
-                    CategoryGroup(
-                        title = tr("系统界面", "系统界面"),
-                        entries = listOf(
-                            CategoryPageEntry(tr("系统界面与材质调整", "系统界面与材质调整"), PageId.SHADE),
-                            CategoryPageEntry(tr("桌面", "桌面"), PageId.DESKTOP),
-                            CategoryPageEntry(tr("通知与超级岛", "通知与超级岛"), PageId.ISLAND),
-                            CategoryPageEntry(tr("状态栏与控制中心", "状态栏与控制中心"), PageId.STATUS),
-                            CategoryPageEntry(tr("锁屏", "锁屏"), PageId.LOCK),
-                        ),
-                        enabled = connected,
-                        open = open,
-                    )
-                }
-                item {
-                    CategoryGroup(
-                        title = tr("系统功能", "系统功能"),
-                        entries = listOf(
-                            CategoryPageEntry(tr("系统框架", "系统框架"), PageId.SYSTEM_FRAMEWORK),
-                            CategoryPageEntry(tr("超级小爱与输入法", "超级小爱与输入法"), PageId.SUPER_XIAOAI),
-                            CategoryPageEntry(tr("相机与相册编辑", "相机与相册编辑"), PageId.CAMERA),
-                            CategoryPageEntry(tr("系统更新", "系统更新"), PageId.SYSTEM_UPDATE),
-                            CategoryPageEntry(tr("系统设置", "系统设置"), PageId.SYSTEM_SETTINGS),
-                            CategoryPageEntry(tr("背屏", "背屏"), PageId.REAR_SCREEN),
-                        ),
-                        enabled = connected,
-                        open = open,
-                    )
-                }
-                item {
-                    CategoryGroup(
-                        title = tr("其他", "其他"),
-                        entries = listOf(
-                            CategoryPageEntry(tr("应用底部导航", "应用底部导航"), PageId.APP_NAVIGATION),
-                            CategoryPageEntry(tr("其他", "其他"), PageId.OTHER),
-                        ),
-                        enabled = connected,
-                        open = open,
-                    )
-                }
-            } else if (groupedItems.isEmpty()) {
-                item {
-                    Card(
-                        Modifier.fillMaxWidth(),
-                        cornerRadius = 22.5.dp,
-                        insideMargin = PaddingValues(18.dp),
-                    ) {
-                        Text(
-                            tr("category_search_no_results", "没有找到匹配的设置项"),
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-            } else {
-                groupedItems.forEach { (scope, items) ->
-                    item {
-                        SmallTitle(
-                            tr(scope.title, scope.title),
-                            insideMargin = PaddingValues(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 4.dp),
-                        )
-                        Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
-                            items.forEach { result ->
-                                SharedViewArrowPreference(
-                                    title = result.title,
-                                    summary = result.description,
-                                    enabled = connected,
-                                    onClick = { open(result.page) },
-                                )
-                            }
-                        }
-                    }
-                }
+            item {
+                CategoryGroup(
+                    title = tr("系统功能", "系统功能"),
+                    entries = listOf(
+                        CategoryPageEntry(tr("系统框架", "系统框架"), PageId.SYSTEM_FRAMEWORK),
+                        CategoryPageEntry(tr("超级小爱与输入法", "超级小爱与输入法"), PageId.SUPER_XIAOAI),
+                        CategoryPageEntry(tr("相机与相册编辑", "相机与相册编辑"), PageId.CAMERA),
+                        CategoryPageEntry(tr("系统更新", "系统更新"), PageId.SYSTEM_UPDATE),
+                        CategoryPageEntry(tr("系统设置", "系统设置"), PageId.SYSTEM_SETTINGS),
+                        CategoryPageEntry(tr("背屏", "背屏"), PageId.REAR_SCREEN),
+                    ),
+                    enabled = connected,
+                    open = open,
+                )
+            }
+            item {
+                CategoryGroup(
+                    title = tr("其他", "其他"),
+                    entries = listOf(
+                        CategoryPageEntry(tr("应用底部导航", "应用底部导航"), PageId.APP_NAVIGATION),
+                        CategoryPageEntry(tr("其他", "其他"), PageId.OTHER),
+                    ),
+                    enabled = connected,
+                    open = open,
+                )
             }
         }
     }
-}
-
-@Composable
-private fun CategorySearchBar(
-    query: String,
-    expanded: Boolean,
-    onQueryChange: (String) -> Unit,
-    onExpandedChange: (Boolean) -> Unit,
-    onCancel: () -> Unit,
-    collapsedFraction: Float,
-) {
-    val showCancel = expanded || query.isNotBlank()
-    val cancelAlpha by animateFloatAsState(
-        targetValue = if (showCancel) 1f else 0f,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
-        label = "categorySearchCancelAlpha",
-    )
-    val cancelBlur by animateFloatAsState(
-        targetValue = if (showCancel) 0f else 8f,
-        animationSpec = tween(220, easing = FastOutSlowInEasing),
-        label = "categorySearchCancelBlur",
-    )
-    SearchBar(
-        modifier = Modifier.fillMaxWidth()
-            .graphicsLayer {
-                val scale = 1f - .1f * collapsedFraction
-                scaleX = scale
-                scaleY = scale
-            }
-            .blur((4f * collapsedFraction).dp),
-        insideMargin = DpSize(0.dp, 0.dp),
-        inputField = {
-            InputField(
-                query = query,
-                onQueryChange = onQueryChange,
-                onSearch = { onExpandedChange(false) },
-                expanded = expanded,
-                onExpandedChange = onExpandedChange,
-                label = tr("category_search_placeholder", "搜索设置项名称、描述或作用域"),
-            )
-        },
-        expanded = expanded,
-        onExpandedChange = onExpandedChange,
-        outsideEndAction = {
-            AnimatedVisibility(
-                visible = showCancel,
-                enter = fadeIn(tween(220, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(220, easing = FastOutSlowInEasing)),
-            ) {
-                Text(
-                    modifier = Modifier
-                        .padding(start = 12.dp)
-                        .graphicsLayer { alpha = cancelAlpha }
-                        .blur(cancelBlur.dp)
-                        .clickable(
-                            interactionSource = null,
-                            indication = null,
-                            onClick = onCancel,
-                        ),
-                    text = tr("取消", "取消"),
-                    color = MiuixTheme.colorScheme.primary,
-                )
-            }
-        },
-    ) {}
 }
 
 @Composable
@@ -2245,6 +2463,15 @@ private fun OtherPage(
                     title = tr("cloudControlTitle", "云控"),
                     summary = tr("实验性功能", "实验性功能"),
                     onClick = { open(PageId.CLOUD_CONTROL) },
+                )
+                SharedViewArrowPreference(
+                    title = tr("privacyGuardTitle", "预装隐私拦截"),
+                    summary = tr("实验性功能", "实验性功能"),
+                    onClick = { open(PageId.PRIVACY_GUARD) },
+                )
+                SharedViewArrowPreference(
+                    title = tr("应用底部导航", "应用底部导航"),
+                    onClick = { open(PageId.APP_NAVIGATION) },
                 )
                 SharedViewArrowPreference(
                     title = tr("拨号与通话", "拨号与通话"),
@@ -2991,50 +3218,79 @@ private fun RearMusicApps(
     val apps = rememberRearApps()
     var query by rememberSaveable { mutableStateOf("") }
     var showSystemApps by rememberSaveable { mutableStateOf(false) }
-    val normalizedQuery = query.trim().lowercase(Locale.getDefault())
-    val visibleApps = remember(apps, selectedPackages, normalizedQuery, showSystemApps) {
-        apps.filter { app ->
-            (showSystemApps || !app.isSystem) &&
-                (normalizedQuery.isEmpty() ||
-                    app.label.lowercase(Locale.getDefault()).contains(normalizedQuery) ||
-                    app.packageName.lowercase(Locale.getDefault()).contains(normalizedQuery))
-        }.sortedWith(compareByDescending<RearApp> { it.packageName in selectedPackages }
-            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
-            .thenBy { it.packageName })
+    // Checkbox changes persist immediately; only entry/refresh changes the priority group.
+    var orderingPackages by remember { mutableStateOf(selectedPackages.toSet()) }
+    val currentSelectedPackages by rememberUpdatedState(selectedPackages)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) orderingPackages = currentSelectedPackages.toSet()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val documents = remember(apps) {
+        apps.map { app -> SettingsSearchDocument(app, app.label, "", listOf(app.packageName)) }
+    }
+    val matches = rememberSettingsSearch(documents, query)
+    val visibleApps = remember(matches, orderingPackages, showSystemApps) {
+        matches.orEmpty().filter { showSystemApps || !it.isSystem }
+            .sortedWith(compareByDescending<RearApp> { it.packageName in orderingPackages }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
+                .thenBy { it.packageName })
     }
     AppPage(
         title = tr("\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6\u767d\u540d\u5355", "\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6\u767d\u540d\u5355"),
         onBack = back,
+        floatingToolbar = {
+            NavigationAppSearchField(query, onQueryChange = { query = it })
+        },
         content = { padding, scroll ->
-            AppList(padding, scroll, 28) {
-                item {
-                    RearAppSearchBar(query = query, onQueryChange = { query = it })
-                }
-                if (visibleApps.isEmpty()) {
-                    item {
-                        Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp, insideMargin = PaddingValues(18.dp)) {
-                            Text(
-                                tr("\u6ca1\u6709\u5339\u914d\u7684\u5e94\u7528", "\u6ca1\u6709\u5339\u914d\u7684\u5e94\u7528"),
-                                style = MiuixTheme.textStyles.body2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = TextAlign.Center,
+            val listPadding = PaddingValues(
+                top = padding.calculateTopPadding(),
+                bottom = maxOf(
+                    padding.calculateBottomPadding(),
+                    WindowInsets.ime.asPaddingValues().calculateBottomPadding(),
+                ),
+            )
+            PullToRefresh(
+                isRefreshing = false,
+                onRefresh = { orderingPackages = currentSelectedPackages.toSet() },
+                modifier = Modifier.fillMaxSize(),
+                pullToRefreshState = rememberPullToRefreshState(refreshThreshold = NAVIGATION_REFRESH_THRESHOLD),
+                contentPadding = padding,
+                topAppBarScrollBehavior = scroll,
+                color = MiuixTheme.colorScheme.primary,
+                refreshTexts = navigationRefreshTexts(),
+            ) {
+                AppList(listPadding, scroll, 112) {
+                    if (visibleApps.isEmpty()) {
+                        item {
+                            Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp, insideMargin = PaddingValues(18.dp)) {
+                                Text(
+                                    if (matches == null) tr("category_search_loading", "正在搜索…")
+                                    else tr("\u6ca1\u6709\u5339\u914d\u7684\u5e94\u7528", "\u6ca1\u6709\u5339\u914d\u7684\u5e94\u7528"),
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    } else {
+                        items(visibleApps, key = { it.packageName }) { app ->
+                            val checked = app.packageName in selectedPackages
+                            RearAppCard(
+                                app = app,
+                                checked = checked,
+                                onCheckedChange = {
+                                    onSelectedPackagesChange(
+                                        if (checked) selectedPackages - app.packageName
+                                        else selectedPackages + app.packageName,
+                                    )
+                                },
                             )
                         }
-                    }
-                } else {
-                    items(visibleApps, key = { it.packageName }) { app ->
-                        val checked = app.packageName in selectedPackages
-                        RearAppCard(
-                            app = app,
-                            checked = checked,
-                            onCheckedChange = {
-                                onSelectedPackagesChange(
-                                    if (checked) selectedPackages - app.packageName
-                                    else selectedPackages + app.packageName,
-                                )
-                            },
-                        )
                     }
                 }
             }
@@ -3164,11 +3420,20 @@ private fun SettingsHome(
     onImportModulePreset: () -> Unit,
     onExportModulePreset: () -> Unit,
     onResetModulePreset: () -> Unit,
+    searchSection: ModuleSettingsSection? = null,
+    onSearchSectionConsumed: () -> Unit = {},
 ) = AppPage(tr("settings", tr("设置", "设置"))) { padding, scroll ->
     val context = LocalContext.current
     var editingEntryTitle by remember { mutableStateOf(false) }
     var predictiveProgress by remember(settings.predictiveBackProgress) { mutableFloatStateOf(settings.predictiveBackProgress.toFloat()) }
-    AppList(padding, scroll) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(searchSection) {
+        searchSection?.let {
+            listState.scrollToItem(it.listIndex)
+            onSearchSectionConsumed()
+        }
+    }
+    AppList(padding, scroll, state = listState) {
         item { ServiceCard(service, appThemeStore.settings.monetEnabled) }
         item {
             Group(tr("模块设置", "模块设置")) {
@@ -3177,6 +3442,7 @@ private fun SettingsHome(
                     title = tr("restart_scope_apps", tr("\u91cd\u542f\u4f5c\u7528\u57df\u5e94\u7528", "\u91cd\u542f\u4f5c\u7528\u57df\u5e94\u7528")),
                     onClick = { open(PageId.RESTART_SCOPES) },
                 )
+                ModuleSearchSettingsPreference(service)
                 val languagePrefs = remember { context.getSharedPreferences("languages", android.content.Context.MODE_PRIVATE) }
                 val selectedLanguage = languagePrefs.getString("selected", "system") ?: "system"
                 val selectedLanguageSummary = when (selectedLanguage) {
@@ -3493,6 +3759,7 @@ private fun RestartScopesPage(
         ScopeApplication.XIAOMI_STORE,
         ScopeApplication.XIAOMI_WALLET,
         ScopeApplication.XIAOMI_HEALTH,
+        ScopeApplication.REDDIT,
         ScopeApplication.TENCENT_MEETING,
         ScopeApplication.DOUSHENGSHENG,
         ScopeApplication.MEITUAN,
@@ -5658,6 +5925,7 @@ private fun Detail(
         PageId.OTHER -> OtherPage(airDropSettings, updateAirDrop, screenRecorder, updateScreenRecorder, openPage, back)
         PageId.ENVIRONMENT_DETECTION -> EnvironmentDetectionPage(back)
         PageId.CLOUD_CONTROL -> CloudControlPage(back)
+        PageId.PRIVACY_GUARD -> PrivacyGuardPage(back)
         PageId.CONTACTS_DIALER -> ContactsDialerPage({ openPage(PageId.CONTACTS_DIALER_BACKGROUND) }, back)
         PageId.CONTACTS_DIALER_BACKGROUND -> ContactsDialerBackgroundPage(back)
         PageId.SIDEBAR -> SidebarPage({ openPage(PageId.SIDEBAR_GLASS) }, back)
@@ -9173,13 +9441,25 @@ private fun ControlCenterTopButtonsPage(back: () -> Unit) {
     val service by HookApplication.service.collectAsStateWithLifecycle()
     val store = remember(context) { ControlCenterTopButtonsGlassSettingsStore(context) }
     var state by remember { mutableStateOf(store.settings) }
+    val placementStore = remember(context) { ControlCenterTopButtonsPlacementSettingsStore(context) }
+    var placement by remember { mutableStateOf(placementStore.settings) }
+    val geometryStore = remember(context) { ControlCenterTopButtonsGeometrySettingsStore(context) }
+    var geometry by remember { mutableStateOf(geometryStore.read(placement.atBottom)) }
     LaunchedEffect(service) {
         service?.let(store::syncRemote)
+        service?.let(placementStore::syncRemote)
+        service?.let(geometryStore::syncRemote)
+        placement = placementStore.settings
+        geometry = geometryStore.read(placement.atBottom)
         state = store.settings
     }
     fun update(transform: (ControlCenterTopButtonsGlassSettings) -> ControlCenterTopButtonsGlassSettings) {
         store.update(service, transform)
         state = store.settings
+    }
+    fun updateGeometry(parameter: CcButtonGeometryParameter, value: Float) {
+        geometryStore.update(service, placement.atBottom, parameter, value)
+        geometry = geometryStore.read(placement.atBottom)
     }
     AppPage(tr("控制中心顶部按钮", "控制中心顶部按钮"), back, restartScopes = setOf(ScopeApplication.SYSTEM_UI)) { p, scroll ->
         AppList(p, scroll) {
@@ -9195,11 +9475,35 @@ private fun ControlCenterTopButtonsPage(back: () -> Unit) {
                         enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
                         exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
                     ) {
-                        SwitchPreference(
-                            title = tr("横屏显示控制中心顶部控制按钮", "横屏显示控制中心顶部控制按钮"),
-                            checked = state.showInLandscape,
-                            onCheckedChange = { value -> update { it.copy(showInLandscape = value) } },
-                        )
+                        Column {
+                            SwitchPreference(
+                                title = tr("横屏显示控制中心顶部控制按钮", "横屏显示控制中心顶部控制按钮"),
+                                checked = state.showInLandscape,
+                                onCheckedChange = { value -> update { it.copy(showInLandscape = value) } },
+                            )
+                            SwitchPreference(
+                                title = tr("cc_top_buttons_at_bottom", "下移至控制中心磁贴尾部"),
+                                checked = placement.atBottom,
+                                onCheckedChange = { value ->
+                                    placementStore.update(service, placement.copy(atBottom = value))
+                                    placement = placementStore.settings
+                                    geometry = geometryStore.read(placement.atBottom)
+                                },
+                            )
+                            AnimatedVisibility(visible = placement.atBottom,
+                                enter = fadeIn(tween(180)) + expandVertically(tween(220)),
+                                exit = fadeOut(tween(140)) + shrinkVertically(tween(180))) {
+                                ParameterIntSlide(tr("cc_top_buttons_bottom_gap", "与控制中心磁贴底部的间距"),
+                                    placement.gapDp, -48..64, " dp", defaultValue = 0) { value ->
+                                    placementStore.update(service, placement.copy(gapDp = value))
+                                    placement = placementStore.settings
+                                }
+                            }
+                        }
+                    }
+                    ParameterIntSlide(tr("cc_top_buttons_spacing", "控制按钮之间的间距"),
+                        geometry.spacingDp, -64..96, " dp", defaultValue = 0) { value ->
+                        updateGeometry(CcButtonGeometryParameter.SPACING, value.toFloat())
                     }
                 }
             }
@@ -9212,10 +9516,10 @@ private fun ControlCenterTopButtonsPage(back: () -> Unit) {
                     Group(tr("材质设置", "材质设置")) {
                         ParameterFloatSlide(
                             title = tr("顶部按钮图标缩放", "顶部按钮图标缩放"),
-                            value = state.iconScale,
+                            value = geometry.iconScale,
                             range = .5f..2f,
                             defaultValue = 1f,
-                        ) { value -> update { it.copy(iconScale = value) } }
+                        ) { value -> updateGeometry(CcButtonGeometryParameter.ICON_SCALE, value) }
                         OverlayDropdownPreference(
                             title = tr("顶部按钮背景材质", "顶部按钮背景材质"),
                             items = listOf(tr("不显示", "不显示"), tr("纯色", "纯色"), tr("高级材质", "高级材质"), tr("柔光玻璃", "柔光玻璃")),
@@ -9234,7 +9538,7 @@ private fun ControlCenterTopButtonsPage(back: () -> Unit) {
                                             color = state.pureColor,
                                             onColorChange = { value -> update { it.copy(pureColor = value) } },
                                         )
-                                        ParameterDpSlide(tr("顶部按钮背景圆形半径", "顶部按钮背景圆形半径"), state.pureRadius, 0f..22f, 22f) { value -> update { it.copy(pureRadius = value) } }
+                                        ParameterDpSlide(tr("顶部按钮背景圆形半径", "顶部按钮背景圆形半径"), geometry.pureRadius, 0f..22f, 22f) { value -> updateGeometry(CcButtonGeometryParameter.PURE_RADIUS, value) }
                                     }
                                     CONTROL_CENTER_TOP_BUTTONS_MODE_ADVANCED -> {
                                         ShortcutBackgroundColorPreference(
@@ -9242,7 +9546,7 @@ private fun ControlCenterTopButtonsPage(back: () -> Unit) {
                                             color = state.advancedColor,
                                             onColorChange = { value -> update { it.copy(advancedColor = value) } },
                                         )
-                                        ParameterDpSlide(tr("顶部按钮背景圆形半径", "顶部按钮背景圆形半径"), state.advancedRadius, 0f..22f, 22f) { value -> update { it.copy(advancedRadius = value) } }
+                                        ParameterDpSlide(tr("顶部按钮背景圆形半径", "顶部按钮背景圆形半径"), geometry.advancedRadius, 0f..22f, 22f) { value -> updateGeometry(CcButtonGeometryParameter.ADVANCED_RADIUS, value) }
                                         ParameterIntSlide(tr("不透明度", "不透明度"), state.advancedOpacity, 0..100, "%", 14) { value -> update { it.copy(advancedOpacity = value) } }
                                         ParameterIntSlide(tr("背景模糊度", "背景模糊度"), state.advancedBlur, 0..40, " px", 40) { value -> update { it.copy(advancedBlur = value) } }
                                         SwitchPreference(
@@ -9252,7 +9556,7 @@ private fun ControlCenterTopButtonsPage(back: () -> Unit) {
                                         )
                                     }
                                     CONTROL_CENTER_TOP_BUTTONS_MODE_SOFT_GLASS -> {
-                                        ParameterDpSlide(tr("顶部按钮背景圆形半径", "顶部按钮背景圆形半径"), state.softRadius, 0f..22f, 22f) { value -> update { it.copy(softRadius = value) } }
+                                        ParameterDpSlide(tr("顶部按钮背景圆形半径", "顶部按钮背景圆形半径"), geometry.softRadius, 0f..22f, 22f) { value -> updateGeometry(CcButtonGeometryParameter.SOFT_RADIUS, value) }
                                         SwitchPreference(
                                             title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"),
                                             checked = state.useGlobal,
@@ -13938,6 +14242,8 @@ internal fun AppPage(
     onLargeTitleClick: (() -> Unit)? = null,
     pageBackground: (@Composable BoxScope.() -> Unit)? = null,
     header: @Composable () -> Unit = {},
+    overlay: @Composable BoxScope.() -> Unit = {},
+    coveredBlur: Dp = 0.dp,
     content: @Composable (PaddingValues, ScrollBehavior) -> Unit,
 ) {
     val context = LocalContext.current
@@ -13965,6 +14271,7 @@ internal fun AppPage(
         Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) { it() }
     }
     Scaffold(
+        modifier = Modifier.blur(coveredBlur),
         containerColor = ComposeColor.Transparent,
         floatingToolbar = floatingToolbar,
         floatingToolbarPosition = floatingToolbarPosition,
@@ -14064,6 +14371,7 @@ internal fun AppPage(
             scrollableList = restartScrollableList,
         )
     }
+    overlay()
     }
     }
 }
@@ -14859,9 +15167,11 @@ private fun GlassActionButton(
 }
 
 @Composable
-internal fun AppList(padding: PaddingValues, scroll: ScrollBehavior, bottom: Int = 112, items: LazyListScope.() -> Unit) {
+internal fun AppList(padding: PaddingValues, scroll: ScrollBehavior, bottom: Int = 112,
+    state: LazyListState = rememberLazyListState(), items: LazyListScope.() -> Unit) {
     LazyColumn(
         Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).nestedScroll(scroll.nestedScrollConnection),
+        state = state,
         contentPadding = PaddingValues(16.dp, padding.calculateTopPadding() + 4.dp, 16.dp, padding.calculateBottomPadding() + bottom.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         content = items

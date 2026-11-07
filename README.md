@@ -43,6 +43,8 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 
 当前源码版本以 [app/build.gradle.kts](app/build.gradle.kts) 中的 `versionName` 为准，README 不重复维护版本号。下载版本与更新说明请查看 [Releases](https://github.com/ColdP/HyperChanger/releases)。
 
+本次正式版更新说明见 [1.2.2 发布说明](RELEASE_NOTES_1.2.2.md)。
+
 项目仍处于测试阶段，主要适配 **HyperOS 4（Android 17）**。设备、地区、系统构建和应用版本的差异均可能影响功能；最低安装版本并不代表所有功能均受支持。
 
 ## 功能
@@ -51,9 +53,12 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 
 - 分别调整通知中心和控制中心背景，以及普通通知、媒体通知、焦点通知等元素的材质、模糊、透明度和圆角。
 - iOS 风格通知中心：圆角壁纸面板、锁屏时钟与景深效果，可选择锁屏壁纸或不显示壁纸、隐藏清除按钮、调整通知底部偏移；暂不支持动态壁纸。
+- 优化 iOS 风格通知中心运行性能，缓解展开、收起及手势交互时的卡顿，改善通知中心与控制中心切换时的壁纸模糊过渡。
 - 自定义通知中心标题区域的图标、文字、缩放与间距，以及清除按钮的样式和材质；可在通知中心添加锁屏左右快捷按钮，沿用原有操作与拖动手势，并单独保存快捷按钮模式的通知底部偏移。
 - 自定义控制中心大时钟、日期间距、红色“1”、运营商文本与网络标识，以及顶部区域高度。
 - 在“状态栏与控制中心 → 控制中心顶部按钮”中调整图标缩放、横屏显示及背景材质，支持纯色、高级材质和柔光玻璃；柔光玻璃可独立调参或跟随全局参数。
+- 自定义控制中心 WLAN、数据网络、媒体、亮度与音量磁贴的布局，支持小磁贴自动补位、隐藏媒体来源图标及还原布局。
+- 从磁贴目录中选择上部面板项目并记忆磁贴尺寸，编辑页提供系统风格图标与当前媒体封面、标题预览；顶部按钮可移至底部，并分别保存上下位置的图标缩放、圆角与间距。
 - 调整音量面板的模糊、玻璃强度、背景透明度、圆角与音量条宽高。
 - 使用内置或用户预设，通过 JSON 或二维码分享通知与控制中心配置。
 
@@ -72,6 +77,7 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 - 编辑锁屏小组件：组合天气、电量、日出日落、步数、闹钟、日程和签名图片，支持排序及布局、颜色与材质调整。
 - 音乐锁屏封面、迷你播放器与歌词显示；可在歌词库管理本地歌词。
 - 配置趣味光栅动态壁纸，导出当前桌面与锁屏壁纸。
+- 导入、管理、预览和启用 HyperChanger 景深壁纸包。
 - 在应用全局主题后保留柔光玻璃效果，解除息屏时钟玻璃与叠加材质的 OTA 转换限制。
 
 ### 桌面与最近任务
@@ -85,7 +91,9 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 ### 系统设置与背屏
 
 - 自定义系统设置主页与设备页的背景、设备卡片、LOGO、机型图片及显示的设备参数，并添加模块入口。
+- 使用本地与云端设备参数预设库，预览、下载或应用机型参数配置。
 - 自定义系统设置入口文案、图标、模块入口及音效徽标，并调整首页入口图标与文字缩放、行间距；解锁更多自动锁屏与刷新率选项，显示 Google 服务入口及已保存 Wi-Fi 的密码。
+- 在兼容设备上解锁 BOSE 调音并自定义音效徽标；该功能仅开放系统方案，不保证音质提升。
 - 解锁部分背屏 AI 功能，管理导入的自定义背屏应用，选择背屏音乐控件可用的应用。
 - 从背屏右侧向左滑动启动所选应用，并可强制允许所有 Activity 在背屏打开；应用本身仍可能需要适配。
 - 自定义背屏壁纸数量上限，修复主题修改与背屏主题、壁纸授权流程的冲突；相关选项需要主题壁纸作用域。
@@ -106,10 +114,29 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 - 调整传送门背景材质、圆角、展开态高度、悬浮态整体与图标大小，可移除全屏半透明遮罩并保持开发者模式开启；柔光玻璃支持独立参数或跟随全局参数。
 - 增强传送门中日英文本识别，支持在应用内下载、管理和删除本地 OCR 模型；使用增强识别前需完成模型下载。
 - “其他 → 环境检测”提供实验性总开关，以及小米信任服务、手机管家中的相关检测调整。总开关默认关闭，子开关在其开启后显示；首次启用前需依次确认页面提示。相关选项需要对应作用域，不保证改变所有应用的环境检测结果。
+- 实验性预装隐私拦截针对系统助手与系统安全组件，分别控制上报端点、应用清单与使用统计、设备与 SIM 标识及录屏、录音采集；默认关闭，首次使用需确认页面提示。
+
+### 侧边栏、负一屏与系统应用
+
+- 调整侧边栏柔光玻璃参数并统一各卡片材质，可独立调参或使用全局参数；提供视频工具箱温度限制调整。
+- 侧边栏支持双列应用图标、自定义图标数量、列间距、卡片圆角及宽高与图标缩放，可将展开全部应用按钮替换为胶囊形状；优化双列展开动画。
+- 负一屏可使用默认、桌面或自定义背景，移除或自定义壁纸模糊，并独立配置小部件柔光玻璃。
+- 为省电与电池页面显示温度、健康百分比、更多电池信息和完整耗电统计，并开放兼容设备上的无线充电、低温续航及其他充电选项。
+- 通过 Joyose 开放游戏 GPU 设置入口。
+- “其他 → 云控”提供默认关闭的实验性总开关，分别控制 HTML 查看器与 Joyose 的云端任务同步拦截；首次使用需确认页面提示。
+
+### 应用底部导航
+
+- 支持 QQ、Apple Music、微博、小红书、小米商城、小米钱包、小米运动健康、瑞幸咖啡、腾讯会议、抖省省、美团、美团外卖、招商银行、微信、拼多多、Instagram、Pinterest、Reddit、X 和 GitHub，按应用选择样式、标签和颜色；未读提示等选项随适配能力提供。
+- 提供液态玻璃、HyperOS 贴边、HyperOS 悬浮和 HarmonyOS 悬浮四种样式。HyperOS 贴边液态玻璃为默认关闭的实验选项，确认后同时用于模块与目标应用。
+- 三种悬浮样式可逐应用独立缩放宽高（-100.00%～100.00%，精度 0.01%），设置垂直偏移和圆角（-96～0；0 为默认胶囊，-96 为直角）。背景及已有选中胶囊同步调整圆角；贴边样式隐藏缩放与圆角控制。
+- 导航栏材质支持全局配方与单应用独立调整，包含模糊、不透明度、折射、高光和色散等参数；可预览并选择让模块导航栏同步使用全局配方。支持全局垂直偏移与单应用覆盖，以及小红书独立发布按钮、微信头像圆角和钱包标签筛选等专用选项。
+- 主列表仅展示已安装应用及其版本名称；未安装应用移至独立展示页，仅显示应用名与包名。
+- 支持停用指定应用的导航适配，并在独立列表恢复；提供 Reddit 独立创建按钮，完善 Reddit、拼多多导航栏滑动进出动画。
+- 适配分析基于招商银行 14.4.6、美团 12.68.202、美团外卖 8.85.1 等版本；目标应用更新后需重新验证，构建成功不代表所有页面均已通过实机验证。
 
 ### 其他应用与系统更新
 
-- 自定义 QQ、Apple Music、微博、小红书、小米商城、小米钱包、小米运动健康、瑞幸咖啡、腾讯会议、招商银行、微信、拼多多、Instagram、X 和 GitHub 的底部导航，支持样式、标签、颜色及角标设置；可用效果依目标应用而异。招商银行适配基于 14.4.6，其他版本需验证。
 - 移除小米运动健康表盘的 10 分钟试用限制。
 - 强制启用小米互传中的隔空投送可用性检查；实际传输仍依赖系统组件、硬件及对端支持。
 - 增加屏幕录制帧率与码率选项，自定义录制输出目录。
@@ -120,9 +147,9 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 ### 模块应用、语言与更新
 
 - 基于 MIUIX 的设置界面，支持浅色、深色、跟随系统、多种底部导航样式与预测性返回动画；可启用 Monet 取色，并在系统配色、10 种内置主题和自定义颜色之间选择。
-- 按设置项名称、描述或作用域搜索功能入口。
+- 通过悬浮玻璃搜索入口，按设置项名称、描述、关键词或应用包名搜索，直达具体设置页面；可选择是否在结果中包含模块自身设置。
 - 内置简体中文、英文和日文，支持语言包导入、导出与编辑。
-- 通过 JSON 导入、导出模块设置，并在应用内管理需要重启的作用域应用。
+- 通过 JSON 或包含支持资源的 ZIP 导入、导出模块设置，导入前预览配置与资源，并在应用内管理需要重启的作用域应用。
 - 从 GitHub 或 Gitee 检查模块更新，支持下载后手动安装或使用 Root 静默安装。
 - 提供模块总开关、按功能分区的安全停用策略，以及模块日志级别、筛选、保留和 ZIP 导出。
 - 在“设置 → 模块安全”提供运行中目标进程列表、手动热重载请求与逐进程结果。当前模块侧尚未完成热重载支持，此入口不能替代需要重启才能生效的操作。
@@ -185,6 +212,9 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 | 小米声音 | `com.miui.misound` |
 | 小米设置 | `com.xiaomi.misettings` |
 | 腾讯会议 | `com.tencent.wemeet.app` |
+| 抖省省 | `com.ss.android.ugc.lifeservices` |
+| 美团 | `com.sankuai.meituan` |
+| 美团外卖 | `com.sankuai.meituan.takeoutnew` |
 | 招商银行 | `cmb.pb` |
 | 微信 | `com.tencent.mm` |
 | QQ | `com.tencent.mobileqq` |
@@ -192,10 +222,16 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 | 小米信任服务 | `com.xiaomi.trustservice` |
 | 手机管家 | `com.miui.securitycenter` |
 | Instagram | `com.instagram.android` |
+| Pinterest | `com.pinterest` |
+| Reddit | `com.reddit.frontpage` |
 | 拨号与通话 | `com.android.contacts` |
 | 传送门 | `com.miui.contentextension` |
 | X | `com.twitter.android` |
 | GitHub | `com.github.android` |
+| HTML 查看器 | `com.android.htmlviewer` |
+| Joyose | `com.xiaomi.joyose` |
+| 系统助手 | `com.mobiletools.systemhelper` |
+| 系统安全组件 | `com.miui.guardprovider` |
 
 部分包并非每台设备都有。仅选择实际使用的作用域；声明作用域不保证目标应用的所有版本均受支持。
 
@@ -213,7 +249,7 @@ HyperChanger 是面向小米 HyperOS 4 的现代 Xposed 模块，通过配套应
 
 - **通知与控制中心预设**：支持内置和用户预设，长按预设可导出 JSON 或二维码，也可从文件或二维码图片导入。
 - **柔光玻璃预设**：支持内置与自定义参数预设、JSON 和二维码分享；选择跟随全局参数的表面会使用对应的全局柔光玻璃参数。
-- **模块设置预设**：在模块“设置”页面通过 JSON 导入、导出多个配置组。导入时校验格式与版本；导出的配置不包含图片文件本体，部分图片引用字段也会跳过，迁移设备时请单独准备素材。
+- **模块设置预设**：在“设置”中选择“仅导出配置”（JSON）或“导出配置和资源”（ZIP）。ZIP 包含配置及支持的设置外观、图标、歌词、截图壳、锁屏素材、负一屏背景和导航栏材质预览图等本地资源；JSON 不包含文件本体。导入前可预览配置组和资源并确认覆盖。外部图片引用、景深壁纸包等不在导出范围内，迁移时需另行准备；旧预设缺少的应用导航设置会保留当前值。
 - **语言包**：内置中文、英文、日文及跟随系统选项。可参考 [languages/example.json](languages/example.json) 创建语言包，在应用内导入、编辑和导出。
 
 不同类型预设使用各自的导入入口。导入后请检查配置，并按提示应用需要重启才能生效的选项。
@@ -251,9 +287,9 @@ Windows PowerShell：
 
 Debug APK 输出位置：`app/build/outputs/apk/debug/app-debug.apk`。
 
-专项回归脚本位于 `tests/`，其中 `tests/vector-compatibility/run.ps1` 检查框架身份与离线识别边界。脚本依赖本地构建输出及相应工具链，具体路径见各脚本；主机测试和 APK 构建均不能代替设备验证。
+`docs/`、`tests/` 与逆向分析产物属于本地维护资料，由 Git 忽略，不随仓库提供。APK 构建只能验证编译与打包，系统 Hook、GPU 材质和目标应用交互仍需在对应设备与版本上验证。
 
-Release 签名通过 Gradle 属性 `releaseStoreFile`、`releaseStorePassword`、`releaseKeyAlias`、`releaseKeyPassword` 配置，密钥应存放在仓库外。签名构建输出至 `app/build/outputs/apk/release/`，发布文件命名为 `HyperChanger-v<VersionName>.apk`，将版本号中的空格替换为连字符，例如 `HyperChanger-v1.2.1.apk`。不要提交密钥、密码或构建产物。
+Release 签名通过 Gradle 属性 `releaseStoreFile`、`releaseStorePassword`、`releaseKeyAlias`、`releaseKeyPassword` 配置，密钥应存放在仓库外。签名构建输出至 `app/build/outputs/apk/release/`，发布文件命名为 `HyperChanger-v<VersionName>.apk`，将版本号中的空格替换为连字符，例如 `HyperChanger-v1.2.2.apk`。不要提交密钥、密码或构建产物。
 
 ## 目录结构
 
@@ -261,15 +297,13 @@ Release 签名通过 Gradle 属性 `releaseStoreFile`、`releaseStorePassword`�
 HyperChanger/
 |-- app/
 |   |-- src/main/java/       Kotlin / Java 模块与界面源码
-|   |-- src/main/assets/     语言包、法律文档与第三方声明
+|   |-- src/main/assets/     语言包、应用导航资源、法律文档与第三方声明
 |   |-- src/main/cpp/        Dock、文件夹等 ARM64 原生补丁源码
 |   |-- src/main/jniLibs/    预编译 ARM64 libhyperpatch.so
 |   |-- src/main/res/        Android 资源
 |   `-- src/main/resources/  libxposed 入口、元数据与作用域
 |-- languages/example.json   语言包模板
 |-- gradle/                  Gradle Wrapper
-|-- docs/                    功能实现与验证记录
-|-- tests/                   专项回归测试与运行脚本
 |-- README.md                中文主版
 |-- README_en.md             英文版
 |-- README_ja.md             日文版
@@ -290,7 +324,7 @@ HyperChanger 是社区开发的实验性模块，与小米无隶属或官方授�
 
 本组合分发依据 [GNU AGPL 第 3 版](LICENSE) 提供：HyperChanger 原创文件保留 AGPL-3.0-or-later 授权，导入的新版 HyperMusicCover 为 AGPL-3.0-only，组合分发采用第 3 版。历史授权、第三方版权和修改说明见 [NOTICE](NOTICE)。
 
-- 音乐锁屏、歌词与锁屏胶囊更新自 [HyperMusicCover](https://github.com/zyl6932/HyperMusicCover) 2026-10-30 源码快照（AGPL-3.0-only，部分 Apache-2.0 / GPL-3.0）；保留的旧通知中心代码继续适用原 Apache-2.0 授权。导入文件哈希与边界见 [同步审计](docs/hypermusiccover-upstream-sync.md)。
+- 音乐锁屏、歌词与锁屏胶囊更新自 [HyperMusicCover](https://github.com/zyl6932/HyperMusicCover) 2026-10-30 源码快照（AGPL-3.0-only，部分 Apache-2.0 / GPL-3.0）；保留的旧通知中心代码继续适用原 Apache-2.0 授权。授权与修改说明见 [NOTICE](NOTICE)。
 - 收起岛平滑轮廓、大小岛间距及人脸解锁岛相关实现适配自 [HyperIsland 3.1.8](https://github.com/1812z/HyperIsland)（Copyright 2026 1812z，MIT）；完整声明见 [HyperIsland-MIT.txt](app/src/main/assets/licenses/HyperIsland-MIT.txt)。
 - 省电与电池、视频工具箱温控去除相关代码参考并适配自 [HyperCeiler](https://github.com/ReChronoRain/HyperCeiler)（多个版本 · AGPL-3.0 / MIT，Copyright 2023–2026 HyperCeiler Contributions）。具体文件遵循各自的许可声明，本次电池与视频工具箱适配源文件为 AGPL-3.0-or-later；详见 [NOTICE](NOTICE)，上游 MIT 声明见 [HyperCeiler-MIT.txt](app/src/main/assets/licenses/HyperCeiler-MIT.txt)。
 - 模块设置界面基于 [MIUIX 0.9.4](https://github.com/compose-miuix-ui/miuix)（Apache-2.0）构建，使用其 HyperOS 风格界面组件、偏好设置、图标和模糊效果（`miuix-ui`、`miuix-preference`、`miuix-icons`、`miuix-blur`）。感谢 MIUIX 作者与贡献者提供的界面基础；详见 [官方文档](https://compose-miuix-ui.github.io/miuix/) 和 [NOTICE](NOTICE)。
