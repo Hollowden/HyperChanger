@@ -18,6 +18,10 @@
 
 不要提交用户 APK、设置备份、日志或签名密钥，不推送上游。当前脚本只适用本次输入版本。
 
+## 2026-11-07 小黑盒冷启动一闪修复
+
+`port-dex/smali/.../HeyboxHomeBar.smali` 的 `scheduleProbe()` 把首次 `postDelayed` 从 `0x258`（600 ms）改为 `0`。该延迟让小黑盒先绘制原生底栏，等轮询到才替换为玻璃底栏，冷启动时可见一闪；改为立即探测后，录屏抽帧（6 fps，前 3 秒）未再观察到原生底栏出现。改动仅限 `HeyboxHomeBar` 这个类，微信/B站/网易云共用的 `LiquidGlassInstaller` 与 `LiquidGlassPanel` 均未改动；`retryProbe()` 的 250 ms 重试间隔保持不变。重建后的 `classes.dex` 由 apktool 3.0.3 生成，作为 classes5.dex 装回 APK，类数仍为 3598。
+
 ## 真机验证
 
 - APK 签名与 16 KiB 对齐通过；证书与手机原个人修改版一致，直接覆盖安装成功。

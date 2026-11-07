@@ -193,13 +193,16 @@ public final class NeteaseKanadeModule extends XposedModule {
             }
         }
         LiquidGlassHostLayout glass(Activity a,ViewGroup row){
+            // Personal build: NetEase always uses the deep, translucent glass
+            // from the playlist/detail player. The stock theme probe sampled
+            // native text colors and flipped the home page to a white surface.
             LiquidGlassHostLayout h=new LiquidGlassHostLayout(a,content,row);
-            LiquidGlassPanel panel=new LiquidGlassPanel(a,content,d,h.isDark());
+            LiquidGlassPanel panel=new LiquidGlassPanel(a,content,d,true);
             h.addView(panel,new FrameLayout.LayoutParams(-1,-1));
             h.addView(row,new FrameLayout.LayoutParams(-1,-1));
             h.setGlassTuner(new LiquidGlassHostLayout.GlassTuner(){
                 public void onSize(int w,int height,float r){panel.invalidate();}
-                public void onTheme(boolean dark){panel.setTheme(dark);}
+                public void onTheme(boolean dark){panel.setTheme(true);}
             });return h;
         }
         void resolveAccent(Activity a){
@@ -372,7 +375,7 @@ public final class NeteaseKanadeModule extends XposedModule {
         NavView(Context c,Session session,String[] names){super(c);s=session;labels=names;spring=new SpringValue(0,()->{position=(float)springValue();invalidate();});setClickable(true);setContentDescription("网易云悬浮导航：首页、搜索、关注、我的；可左右滑动切换");setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);}
         double springValue(){return spring==null?0:spring.value;}
         void select(int i,boolean animate){if(i==selected&&Math.abs(position-i)<.001f)return;selected=i;if(!animate)spring.snap(i);else spring.to(i);}
-        protected void onDraw(Canvas c){super.onDraw(c);float d=s.d,w=getWidth(),h=getHeight(),cell=w/labels.length;boolean dark=s.host==null||s.host.isDark();
+        protected void onDraw(Canvas c){super.onDraw(c);float d=s.d,w=getWidth(),h=getHeight(),cell=w/labels.length;boolean dark=true;
             float stretch=Math.min(7*d,(float)Math.abs(spring.velocity)*d*.55f),squash=stretch*.18f;
             p.setStyle(Paint.Style.FILL);p.setColor(dark?0x22ffffff:0x22000000);c.drawRoundRect(4*d+position*cell-stretch,4*d+squash,(position+1)*cell-4*d+stretch,h-4*d-squash,(h-8*d)/2,(h-8*d)/2,p);
             for(int i=0;i<labels.length;i++){
@@ -450,7 +453,7 @@ public final class NeteaseKanadeModule extends XposedModule {
             boolean playing=s.isPlaying();
             if(w<=140*d){if(s.resumed&&getWindowVisibility()==VISIBLE&&playing)postInvalidateDelayed(32);return;}
             int infoLayer=c.saveLayerAlpha(0,0,w,h,(int)(255*Math.min(1,(w/d-140)/70)));
-            p.setColor(s.host.isDark()?Color.WHITE:0xff20242a);p.setTextSize(13*d);p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextAlign(Paint.Align.LEFT);
+            p.setColor(Color.WHITE);p.setTextSize(13*d);p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextAlign(Paint.Align.LEFT);
             String next=s.songTitle();long now=SystemClock.uptimeMillis();if(!next.equals(title)){oldTitle=title;title=next;changedAt=now;}
             float t=Math.min(1,(now-changedAt)/360f),ease=1-(float)Math.pow(1-t,3);
             c.save();c.clipRect(59*d,0,w-92*d,h);if(t<1){p.setAlpha((int)(255*(1-ease)));c.drawText(oldTitle,59*d-14*d*ease,h*.57f,p);}p.setAlpha((int)(255*ease));c.drawText(title,59*d+14*d*(1-ease),h*.57f,p);p.setAlpha(255);c.restore();

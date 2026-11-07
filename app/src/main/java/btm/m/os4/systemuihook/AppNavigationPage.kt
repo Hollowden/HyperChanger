@@ -90,6 +90,8 @@ private val appNavItems = listOf(
     AppNavItem("Pinterest", "com.pinterest"),
     AppNavItem("X", "com.twitter.android"),
     AppNavItem("GitHub", "com.github.android"),
+    AppNavItem("网易云音乐", "com.netease.cloudmusic"),
+    AppNavItem("小黑盒", "com.max.xiaoheihe"),
 )
 
 @Composable

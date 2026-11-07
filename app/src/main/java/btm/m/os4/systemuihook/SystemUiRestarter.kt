@@ -151,6 +151,7 @@ enum class ScopeApplication(val title: String, val packageName: String) {
     MEITUAN_TAKEOUT("美团外卖", "com.sankuai.meituan.takeoutnew"),
     CMB_BANK("招商银行", "cmb.pb"),
     WECHAT("微信", "com.tencent.mm"),
+    XIAOHEIHE("小黑盒", "com.max.xiaoheihe"),
     QQ("QQ", "com.tencent.mobileqq"),
     PINDUODUO("拼多多", "com.xunmeng.pinduoduo"),
     INSTAGRAM("Instagram", "com.instagram.android"),

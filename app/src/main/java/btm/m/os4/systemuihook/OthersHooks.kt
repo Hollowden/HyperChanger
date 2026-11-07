@@ -371,7 +371,9 @@ internal class OthersHooks(
                 "com.reddit.frontpage" -> AppBottomNavHooks.installReddit(module, param.defaultClassLoader, blur, label, style, advanced, color, accent)
                 "cmb.pb" -> AppBottomNavHooks.installCmbBank(module, blur, label, style, advanced, color, accent)
                 "com.tencent.mm" -> {
-                    AppBottomNavHooks.installWeChat(module, param.defaultClassLoader, blur, label, style, advanced, color, accent, showBadges)
+                    // The personal SuperLiquid port owns the WeChat bottom bar in this
+                    // build. Installing the stock one too stacks two bars; the port reads
+                    // scope.com.tencent.mm.enabled, which stays as its on/off switch.
                 }
                 "com.xunmeng.pinduoduo" -> AppBottomNavHooks.installPinduoduo(module, param.defaultClassLoader, blur, label, style, advanced, color, accent)
                 "com.instagram.android" -> AppBottomNavHooks.installInstagram(module, param.defaultClassLoader, blur, label, style, advanced, color, accent)

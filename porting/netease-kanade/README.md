@@ -37,3 +37,9 @@
 回退输入：构建目录的 hyperchanger-before.apk 与 before-settings.tar。不要直接覆盖旧 LSPosed 整库，以免丢失其他模块后来产生的设置。之前微信和小黑盒移植的 DEX 保持不变。
 
 最终 APK SHA256：4BD54073156BF6ABC4AC2877C4BE484954527B1B86135BF2B2FC989915B8F74A
+
+## 2026-11-07 个人版修复（v1.2.2 合体版）
+
+`NeteaseKanadeModule.glass()` 现在固定以 `dark=true` 创建 `LiquidGlassPanel`，并在 host 的 `onTheme` 回调里强制 `panel.setTheme(true)`；`NavView`/`DetailView` 的文字颜色也固定为白色。原因：上游 SuperLiquid 的 `probeTheme` 通过统计原生文字颜色判断明暗，在网易云首页（深色皮肤 + 系统浅色模式）会判成 `dark=false`，`setTheme(false)` 把表面色设成 `0x66f2f2f7`（不透明白），而歌单页恰好判成 `dark=true` 用 `0x662c2c2e`（深灰液态玻璃）。固定后所有页面统一为歌单页那种深色玻璃，不受白天/黑夜模式影响。`classes5.dex` 未改动，微信与小黑盒的玻璃颜色不受影响。
+
+classes7.dex 用本目录源码 + 编译桩类重新 D8 生成，其余 dex 保持原样，签名仍为个人密钥。
