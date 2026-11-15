@@ -11542,7 +11542,10 @@ class HyperSystemUiModule : XposedModule() {
         if (!ModuleSafetyRuntime.allows(SafetySection.CONTROL_CENTER)) return
         if (!cornerTargetClasses.add(targetClass)) return
         when (targetClass.name) {
-            TOP_BUTTONS_CLASS -> hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 0, preferences)
+            TOP_BUTTONS_CLASS -> {
+                hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 0, preferences)
+                hookControlCenterCardRadiusReset(targetClass, preferences)
+            }
             MEDIA_PANEL_CLASS -> hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 1, preferences)
             DEVICE_CENTER_ENTRY -> hookDeviceCenterOutline(targetClass, preferences)
             SLIDER_VIEW_HOLDER_CLASS,
@@ -11619,6 +11622,34 @@ class HyperSystemUiModule : XposedModule() {
                 view.invalidateOutline()
             }
         }
+    }
+
+    private fun hookControlCenterCardRadiusReset(targetClass: Class<*>, preferences: SharedPreferences) {
+        runCatching {
+            val reset = targetClass.getDeclaredMethod("updateCornerRadius")
+            val field = targetClass.getDeclaredField("_cornerRadius").apply { isAccessible = true }
+            hookDeoptimized(reset)
+                .setExceptionMode(ExceptionMode.PROTECTIVE)
+                .setId("control-center-card-radius-reset")
+                .intercept { chain ->
+                    val result = chain.proceed()
+                    val view = chain.thisObject as? View ?: return@intercept result
+                    val settings = controlRadiusSettings(preferences)
+                    if (!settings.enabled || settings.topButtons == 0) return@intercept result
+
+                    // The plugin writes the stock radius directly before rebuilding its background.
+                    val original = field.getFloat(view)
+                    val radius = adjustedControlCenterRadius(original, settings.topButtons, view.resources.displayMetrics.density, true)
+                    field.setFloat(view, radius)
+                    synchronized(controlRadiusBaselines) {
+                        controlRadiusBaselines.getOrPut(view) { mutableMapOf() }
+                            .getOrPut("setCornerRadius") { ControlCenterRadiusBaseline() }
+                            .remember(original, radius)
+                    }
+                    view.invalidateOutline()
+                    result
+                }
+        }.onFailure { error -> HookModuleLogger.log(this, Log.DEBUG, TAG, "Control-center card radius reset hook unavailable", error) }
     }
 
     private fun hookUnifiedRadiusSetter(targetClass: Class<*>, methodName: String, category: Int, preferences: SharedPreferences) {
