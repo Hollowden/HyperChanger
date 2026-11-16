@@ -126,6 +126,9 @@ object ModulePresetCodec {
                 val controls = DeviceStyleCustomization.decode(values.optJSONObject(DEVICE_STYLE_CUSTOMIZATION_KEY)?.optString("value"), legacy)
                 values.put(DEVICE_STYLE_CUSTOMIZATION_KEY, typed("string", controls.encode()))
                 if (!values.has("style3_update_status_visible")) values.put("style3_update_status_visible", typed("boolean", true))
+                if (!values.has(DEVICE_CARD_OPACITY_KEY)) {
+                    values.put(DEVICE_CARD_OPACITY_KEY, typed("int", DEFAULT_DEVICE_CARD_OPACITY))
+                }
             }
             if (groupName == "settings") {
                 completeCameraFeaturePreset(values)
@@ -226,6 +229,9 @@ object ModulePresetCodec {
                 val controls = DeviceStyleCustomization.decode(values.optJSONObject(DEVICE_STYLE_CUSTOMIZATION_KEY)?.optString("value"), legacy)
                 values.put(DEVICE_STYLE_CUSTOMIZATION_KEY, typed("string", controls.encode()))
                 if (!values.has("style3_update_status_visible")) values.put("style3_update_status_visible", typed("boolean", true))
+                if (!values.has(DEVICE_CARD_OPACITY_KEY)) {
+                    values.put(DEVICE_CARD_OPACITY_KEY, typed("int", DEFAULT_DEVICE_CARD_OPACITY))
+                }
             }
             if (groupName == "settings") {
                 completeCameraFeaturePreset(values)
@@ -333,6 +339,9 @@ object ModulePresetCodec {
                 val controls = DeviceStyleCustomization.decode(values.optJSONObject(DEVICE_STYLE_CUSTOMIZATION_KEY)?.optString("value"), legacy)
                 values.put(DEVICE_STYLE_CUSTOMIZATION_KEY, typed("string", controls.encode()))
                 if (!values.has("style3_update_status_visible")) values.put("style3_update_status_visible", typed("boolean", true))
+                if (!values.has(DEVICE_CARD_OPACITY_KEY)) {
+                    values.put(DEVICE_CARD_OPACITY_KEY, typed("int", DEFAULT_DEVICE_CARD_OPACITY))
+                }
             }
             if (groupName == "settings") {
                 completeCameraFeaturePreset(values)

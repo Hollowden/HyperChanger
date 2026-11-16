@@ -20,6 +20,7 @@ data class SettingsAppearanceSource(
     val scale: Int,
     val logoMode: Int,
     val lightCardOpacity: Int,
+    val deviceCardOpacity: Int = DEFAULT_DEVICE_CARD_OPACITY,
     val tutorialCardEnabled: Boolean,
     val tutorialCardTitle: String,
     val tutorialCardSlogan: String,
@@ -130,6 +131,8 @@ object SettingsAppearanceSources {
                     scale = cursor.int(SettingsAppearanceProvider.COLUMN_SCALE).coerceIn(50, 200),
                     logoMode = cursor.int(SettingsAppearanceProvider.COLUMN_LOGO_MODE).coerceIn(LOGO_MODE_SYSTEM, LOGO_MODE_KEEP_ADVANCED_MATERIAL),
                     lightCardOpacity = cursor.int(SettingsAppearanceProvider.COLUMN_LIGHT_CARD_OPACITY).coerceIn(0, 100),
+                    deviceCardOpacity = cursor.getColumnIndex(DEVICE_CARD_OPACITY_KEY).takeIf { it >= 0 }
+                        ?.let { cursor.getInt(it).coerceIn(0, 100) } ?: DEFAULT_DEVICE_CARD_OPACITY,
                     tutorialCardEnabled = cursor.int(SettingsAppearanceProvider.COLUMN_TUTORIAL_CARD_ENABLED) != 0,
                     tutorialCardTitle = cursor.string(SettingsAppearanceProvider.COLUMN_TUTORIAL_CARD_TITLE),
                     tutorialCardSlogan = cursor.string(SettingsAppearanceProvider.COLUMN_TUTORIAL_CARD_SLOGAN),

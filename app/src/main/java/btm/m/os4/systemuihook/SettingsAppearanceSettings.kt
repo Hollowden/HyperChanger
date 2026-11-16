@@ -149,6 +149,7 @@ data class SettingsAppearanceSettings(
     val homeVersion: Long = 0L,
     val deviceEnabled: Boolean = false,
     val deviceOpacity: Int = 100,
+    val deviceCardOpacity: Int = DEFAULT_DEVICE_CARD_OPACITY,
     val deviceBlur: Float = 0f,
     val deviceFontMode: Int = 0,
     val deviceMime: String = "",
@@ -277,6 +278,7 @@ internal fun SharedPreferences.toSettingsAppearance() = SettingsAppearanceSettin
     homeVersion = getLong(KEY_HOME_VERSION, 0L),
     deviceEnabled = getBoolean(KEY_DEVICE_ENABLED, false),
     deviceOpacity = getInt(KEY_DEVICE_OPACITY, 100),
+    deviceCardOpacity = deviceCardOpacity(),
     deviceBlur = getFloatCompat(KEY_DEVICE_BLUR, 0f),
     deviceFontMode = getInt(KEY_DEVICE_FONT, 0),
     deviceMime = getString(KEY_DEVICE_MIME, "").orEmpty(),
@@ -367,6 +369,7 @@ private fun SettingsAppearanceSettings.normalized() = copy(
     homeBlur = homeBlur.coerceIn(0f, 20f),
     homeFontMode = homeFontMode.coerceIn(0, 2),
     deviceOpacity = deviceOpacity.coerceIn(0, 100),
+    deviceCardOpacity = deviceCardOpacity.coerceIn(0, 100),
     deviceBlur = deviceBlur.coerceIn(0f, 20f),
     deviceFontMode = deviceFontMode.coerceIn(0, 2),
     logoMode = logoMode.coerceIn(LOGO_MODE_SYSTEM, LOGO_MODE_KEEP_ADVANCED_MATERIAL),
@@ -427,6 +430,7 @@ private fun SharedPreferences.writeSettingsAppearance(value: SettingsAppearanceS
         .putLong(KEY_HOME_VERSION, value.homeVersion)
         .putBoolean(KEY_DEVICE_ENABLED, value.deviceEnabled)
         .putInt(KEY_DEVICE_OPACITY, value.deviceOpacity)
+        .putDeviceCardOpacity(value.deviceCardOpacity)
         .putFloat(KEY_DEVICE_BLUR, value.deviceBlur)
         .putInt(KEY_DEVICE_FONT, value.deviceFontMode)
         .putString(KEY_DEVICE_MIME, value.deviceMime)

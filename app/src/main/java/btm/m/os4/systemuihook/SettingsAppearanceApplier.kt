@@ -31,6 +31,7 @@ object SettingsAppearanceApplier {
     private val fallbackTextModes = Collections.synchronizedMap(WeakHashMap<TextView, Int>())
     private val logoSessions = Collections.synchronizedMap(WeakHashMap<Any, LogoSession>())
     private val cardSessions = Collections.synchronizedMap(WeakHashMap<Activity, CardAlphaSession>())
+    private val deviceCardOpacitySessions = WeakHashMap<Any, DeviceCardOpacitySession>()
     private val tutorialCards = Collections.synchronizedMap(WeakHashMap<Any, TutorialCardSession>())
     private val deviceInfoCards = Collections.synchronizedMap(WeakHashMap<Any, DeviceInfoCardsSession>())
     private val harmonyCards = Collections.synchronizedMap(WeakHashMap<Any, HarmonyCardSession>())
@@ -56,6 +57,8 @@ object SettingsAppearanceApplier {
             val context = fragment.javaClass.getMethod("getContext").invoke(fragment) as? android.content.Context ?: return
             val source = SettingsAppearanceSources.query(context, APPEARANCE_SLOT_DEVICE)
             fragmentActivity(fragment)?.let { applyCardOpacity(it, source.lightCardOpacity) }
+            val root = fragment.javaClass.getMethod("getView").invoke(fragment) as? View
+            applyDeviceCardOpacity(fragment, root, source)
             val old = deviceLayers[fragment]
             Log.i(TAG, "device apply class=${fragment.javaClass.name} exists=${source.exists} enabled=${source.enabled} mime=${source.mime} size=${source.size}")
             if (!source.exists) {
@@ -133,11 +136,27 @@ object SettingsAppearanceApplier {
         }
     }
 
+    private fun applyDeviceCardOpacity(owner: Any, root: View?, source: SettingsAppearanceSource) {
+        val current = deviceCardOpacitySessions[owner]
+        if (root == null || !source.exists || source.deviceCardOpacity == 100 ||
+            root.findViewById<View>(root.resources.getIdentifier("device_params", "id", root.context.packageName)) == null
+        ) {
+            deviceCardOpacitySessions.remove(owner)?.remove()
+            return
+        }
+        val session = if (current?.root === root) current else {
+            current?.remove()
+            DeviceCardOpacitySession(root).also { deviceCardOpacitySessions[owner] = it }
+        }
+        session.update(source.deviceCardOpacity)
+    }
+
     fun stopDevice(fragment: Any?) {
         fragment?.let { deviceLayers[it]?.view?.onHostStop() }
     }
     fun destroyDevice(fragment: Any?) {
         if (fragment == null) return
+        deviceCardOpacitySessions.remove(fragment)?.remove()
         deviceLayers.remove(fragment)?.remove()
         tutorialCards.remove(fragment)?.remove()
         deviceInfoCards.remove(fragment)?.remove()
@@ -372,6 +391,8 @@ object SettingsAppearanceApplier {
     }
 
     private fun applyHarmonyInfoCards(fragment: Any, context: android.content.Context, root: View, image: SettingsAppearanceSource, background: SettingsAppearanceSource) {
+        val pageBackground = SettingsAppearanceSources.query(context, APPEARANCE_SLOT_DEVICE)
+        val opacity = if (pageBackground.exists) pageBackground.deviceCardOpacity else 100
         val old = harmonyInfoCards[fragment]
         val nameId = context.resources.getIdentifier("device_name_card_view", "id", context.packageName)
         val storageId = context.resources.getIdentifier("device_memory_card_view", "id", context.packageName)
@@ -382,11 +403,12 @@ object SettingsAppearanceApplier {
         if (old != null && old.matches(parent, name, storage, image.cacheKey())) {
             old.enforce()
             old.view.refreshBackground(background)
-            old.view.refresh(image.style2ImageScale)
+            old.view.refresh(image.style2ImageScale, opacity)
             return
         }
         old?.remove()
         val row = HarmonyInfoCardsView(context, name, storage, image, background)
+        row.refresh(image.style2ImageScale, opacity)
         val index = parent.indexOfChild(name).coerceAtLeast(0)
         parent.addView(row, index, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, tutorialDp(context, 182)))
         val session = HarmonyInfoCardsSession(parent, name, storage, row, image.cacheKey())
