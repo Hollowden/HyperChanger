@@ -90,6 +90,7 @@ private val appNavItems = listOf(
     AppNavItem("Pinterest", "com.pinterest"),
     AppNavItem("X", "com.twitter.android"),
     AppNavItem("GitHub", "com.github.android"),
+    AppNavItem("小黑盒", "com.max.xiaoheihe"),
 )
 
 @Composable
@@ -397,6 +398,10 @@ private fun AppNavigationCard(item: AppNavItem, store: AppNavigationSettingsStor
 
 @Composable
 private fun AppNavigationSettings(appItem: AppNavItem, store: AppNavigationSettingsStore, service: XposedService?, onChanged: () -> Unit, openMaterial: () -> Unit, back: () -> Unit) {
+    if (appItem.packageName == "com.max.xiaoheihe") {
+        HeyboxNavigationSettings(store, service, onChanged, back)
+        return
+    }
     val prefs = store.preferences
     val enabledKey = ScopedSettings.key(appItem.packageName, ScopedSettings.KEY_ENABLED)
     var enabled by remember(appItem.packageName, service) { mutableStateOf(ScopedSettings.getBoolean(prefs, appItem.packageName, ScopedSettings.KEY_ENABLED, true)) }
@@ -553,6 +558,46 @@ private fun AppNavigationSettings(appItem: AppNavItem, store: AppNavigationSetti
             showAccentDialog = false
         },
     )
+}
+
+@Composable
+private fun HeyboxNavigationSettings(
+    store: AppNavigationSettingsStore,
+    service: XposedService?,
+    onChanged: () -> Unit,
+    back: () -> Unit,
+) {
+    val packageName = "com.max.xiaoheihe"
+    val preferences = store.preferences
+    val enabledKey = ScopedSettings.key(packageName, ScopedSettings.KEY_ENABLED)
+    var enabled by remember(preferences, service) {
+        mutableStateOf(ScopedSettings.getBoolean(preferences, packageName, ScopedSettings.KEY_ENABLED, true))
+    }
+    AppPage(tr("小黑盒", "小黑盒"), back,
+        restartScopes = setOf(ScopeApplication.HEYBOX),
+        restartEnabled = service != null,
+    ) { padding, scroll ->
+        AppList(padding, scroll, 28) {
+            item {
+                Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
+                    SwitchPreference(
+                        title = tr("appNavigationEnableBar", "启用自定义底部导航栏"),
+                        checked = enabled,
+                        onCheckedChange = { value ->
+                            enabled = value
+                            store.edit(service) { putBoolean(enabledKey, value) }
+                            onChanged()
+                        },
+                    )
+                }
+            }
+            if (enabled) {
+                item {
+                    AppNavigationScalePreferences(preferences, service, packageName, onChanged)
+                }
+            }
+        }
+    }
 }
 
 @Composable
