@@ -35,6 +35,10 @@ import kotlin.math.sqrt
 internal class ShortcutDisc(context: Context) : FrameLayout(context) {
     private val element = MaterialElement(context)
 
+    fun syncShortcutBackground(button: View) {
+        btm.m.os4.systemuihook.LockscreenShortcutGlassOwnership.applyBackgroundVisibility(button, element)
+    }
+
     private val cardTitle = TextView(context)
     private val cardText = TextView(context)
     private val cardWords = LinearLayout(context).apply {

@@ -199,6 +199,7 @@ internal class MiniCardMorph(
     /** Lays out the first frame now, in the same pass as the switch, so no frame shows either end bare. */
     fun start(): Boolean {
         if (!measure()) return false
+        if (!MediaCardMorphState.begin(header, clipOutline)) return false
         mini.beginMorph()
         running = true
         startedAt = SystemClock.uptimeMillis()
@@ -440,9 +441,7 @@ internal class MiniCardMorph(
         clipW = header.width.toFloat()
         clipH = min(drawnHeight(), box.h / s)
         clipR = radius / s
-        if (header.outlineProvider !== clipOutline) header.outlineProvider = clipOutline
-        if (!header.clipToOutline) header.clipToOutline = true
-        header.invalidateOutline()
+        MediaCardMorphState.applyOutline(header, clipOutline, box.y)
         header.transitionAlpha = saved.transitionAlpha * nativeIn(c)
 
         // Both ends' whole content in and out of focus, the glass of neither: the pill's going
@@ -662,6 +661,7 @@ internal class MiniCardMorph(
             }
         }
         mini.endMorph()
+        if (MediaCardMorphState.restore(header, clipOutline)) return
         header.setAnimationMatrix(null)
         if (header.outlineProvider === clipOutline) header.outlineProvider = saved.outline
         header.clipToOutline = saved.clip
@@ -697,9 +697,12 @@ internal class MiniCardMorph(
      * laid out 3265px tall, children and all, and the morph flew to a card taller than the
      * screen (2026-09-26). Anything else - the media card - is its own height.
      */
-    private fun drawnHeight(): Float = runCatching {
-        (Xp.callMethod(header, "getActualHeight") as Number).toFloat()
-    }.getOrNull()?.takeIf { it > 0f && it <= header.height } ?: header.height.toFloat()
+    private fun drawnHeight(): Float {
+        if (MediaCardMorphState.isMediaHeader(header)) return header.height.toFloat()
+        return runCatching {
+            (Xp.callMethod(header, "getActualHeight") as Number).toFloat()
+        }.getOrNull()?.takeIf { it > 0f && it <= header.height } ?: header.height.toFloat()
+    }
 
     /** The card's slot on screen: its parent's origin, less any scroll, plus left and top. */
     private fun headerOrigin(): FloatArray? {

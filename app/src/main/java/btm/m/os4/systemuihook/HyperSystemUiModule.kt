@@ -4119,13 +4119,15 @@ class HyperSystemUiModule : XposedModule() {
         if (lockscreenBackdropContainers.contains(view)) return false
         if (isControlCenterTopButtonBackground(view) || expandedIslandMaterialApplying.get() == true || expandedIslandGlassSurfaces.contains(view)) return false
         if (view.tag == SHORTCUT_GLASS_TAG || view.tag == LOCKSCREEN_CAPSULE_MATERIAL_TAG) return false
-        if (isVolumePanelSurface(view) || stackContainsClass("com.android.systemui.miui.volume.")) {
+        val caller = if (isVolumePanelSurface(view)) ShadeMaterialHotPath.VOLUME
+            else ShadeMaterialHotPath.glassCaller()
+        if (caller == ShadeMaterialHotPath.VOLUME) {
             // Some anonymous volume views receive their first recipe before attachment.
             volumePanelSurfaceRoots.add(view)
             return volumeGlobalGlassSelected()
         }
         return softGlassRefreshing.get() == true || isNotificationRowBackground(view) || isShadeBackgroundView(view) ||
-            isControlCenterCall() || isNotificationCenterCall() || isMediaNotificationView(view)
+            caller == ShadeMaterialHotPath.SHADE || isMediaNotificationView(view)
     }
 
     private fun isSoftGlassPanelLayer(view: View): Boolean =
@@ -5680,28 +5682,22 @@ class HyperSystemUiModule : XposedModule() {
             .firstOrNull { it.javaClass.name.contains("ExpandableNotificationRow") }
             ?: return NotificationMaterialType.NORMAL
         return runCatching {
-            val entry = row.javaClass.methods.firstOrNull {
-                it.name == "getEntry" && it.parameterCount == 0
-            }?.invoke(row) ?: return@runCatching NotificationMaterialType.NORMAL
+            val entry = ShadeMaterialHotPath.notificationMethod(row.javaClass, "getEntry")
+                ?.invoke(row) ?: return@runCatching NotificationMaterialType.NORMAL
             val sbn = readInstanceField(entry, "mSbn")
-                ?: entry.javaClass.methods.firstOrNull {
-                    it.name == "getSbn" && it.parameterCount == 0
-                }?.invoke(entry)
+                ?: ShadeMaterialHotPath.notificationMethod(entry.javaClass, "getSbn")?.invoke(entry)
                 ?: return@runCatching NotificationMaterialType.NORMAL
             val isFocus = (readInstanceField(sbn, "mIsFocusNotification") as? Boolean)
-                ?: (sbn.javaClass.methods.firstOrNull {
-                    it.name == "isFocusNotification" && it.parameterCount == 0
-                }?.invoke(sbn) as? Boolean)
+                ?: (ShadeMaterialHotPath.notificationMethod(sbn.javaClass, "isFocusNotification")
+                    ?.invoke(sbn) as? Boolean)
                 ?: false
             if (isFocus) {
                 NotificationMaterialType.FOCUS
             } else {
-                val notification = sbn.javaClass.methods.firstOrNull {
-                    it.name == "getNotification" && it.parameterCount == 0
-                }?.invoke(sbn) ?: return@runCatching NotificationMaterialType.NORMAL
-                if (notification.javaClass.methods.firstOrNull {
-                        it.name == "isMediaNotification" && it.parameterCount == 0
-                    }?.invoke(notification) as? Boolean == true
+                val notification = ShadeMaterialHotPath.notificationMethod(sbn.javaClass, "getNotification")
+                    ?.invoke(sbn) ?: return@runCatching NotificationMaterialType.NORMAL
+                if (ShadeMaterialHotPath.notificationMethod(notification.javaClass, "isMediaNotification")
+                        ?.invoke(notification) as? Boolean == true
                 ) {
                     NotificationMaterialType.MEDIA
                 } else {
@@ -7086,6 +7082,8 @@ class HyperSystemUiModule : XposedModule() {
                 0,
                 FrameLayout.LayoutParams(diameter, diameter, Gravity.CENTER),
             )
+            LockscreenShortcutGlassOwnership.setBackgroundMode(shortcutContainer, backgroundMode)
+            LockscreenShortcutGlassOwnership.onBackgroundAdded(shortcutContainer, glassBackground)
             glassBackground.invalidateOutline()
             // Match the platform's layout-bound material initialization: SDF dimensions
             // are zero before layout and cannot describe a usable glass surface.
@@ -12246,7 +12244,7 @@ class HyperSystemUiModule : XposedModule() {
         private const val SHORTCUT_ICON_COLOR_AUTO = 0
         private const val SHORTCUT_ICON_COLOR_LIGHT = 1
         private const val SHORTCUT_ICON_COLOR_DARK = 2
-        private const val SHORTCUT_GLASS_TAG = "hyperchanger.lockscreen.shortcut.glass"
+        private const val SHORTCUT_GLASS_TAG = LockscreenShortcutGlassOwnership.TAG
         private const val LOCKSCREEN_SHORTCUT_RETRY_DELAY_MS = 250L
         private val LOCKSCREEN_SHORTCUT_CONTAINER_IDS = setOf(
             "shortcut_view_left_layout",

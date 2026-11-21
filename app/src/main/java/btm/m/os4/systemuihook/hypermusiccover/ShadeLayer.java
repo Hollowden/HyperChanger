@@ -6,6 +6,7 @@ import btm.m.os4.systemuihook.newnotificationcenter.IosNotificationCenterPresent
 import btm.m.os4.systemuihook.newnotificationcenter.IosShadeGlassView;
 import btm.m.os4.systemuihook.newnotificationcenter.IosShadeWallpaperReveal;
 import btm.m.os4.systemuihook.newnotificationcenter.IosShadeBackdropBlur;
+import btm.m.os4.systemuihook.newnotificationcenter.ControlCenterBackdropHandoff;
 
 import android.content.Context;
 import android.graphics.Rect;
@@ -227,11 +228,23 @@ public final class ShadeLayer {
     /** Native progress is 0 for control centre, 1 for notifications. Appearance callbacks
      * also fire when the opposite panel collapses, so they cannot determine ownership. */
     public static void onSwitchProgress(float progress, boolean switching) {
+        boolean wasSwitching = IOS.switching;
+        boolean leavingNotifications = switching && !wasSwitching
+                && !IOS.controlCenter && IOS.progress > 0f;
         if (!IOS.switchProgress(progress, switching)) return;
         if (!sIosEnabled) return;
         IosNotificationCenterPresentation.setSwitching(IOS.switching);
         cancelIosSettle();
         applyIosProgress();
+        ViewGroup root = sRoot;
+        boolean reachedControlCenter = wasSwitching && IOS.controlCenter;
+        if ((leavingNotifications || reachedControlCenter) && root != null) {
+            root.postOnAnimation(() -> {
+                if (root == sRoot && sIosEnabled
+                        && (leavingNotifications ? IOS.switching : IOS.controlCenter && !IOS.switching))
+                    ControlCenterBackdropHandoff.restore(root, leavingNotifications);
+            });
+        }
     }
 
     private static void hideIosLayer() {

@@ -4,6 +4,8 @@
 // Copyright 2026 btm_m
 package btm.m.os4.systemuihook.hypermusiccover.next.island
 
+import btm.m.os4.systemuihook.LockscreenShortcutGlassOwnership
+import btm.m.os4.systemuihook.LockscreenSpreadGeometry
 import btm.m.os4.systemuihook.hypermusiccover.next.AlbumArt
 import btm.m.os4.systemuihook.hypermusiccover.next.CardTouch
 import btm.m.os4.systemuihook.hypermusiccover.next.MediaCard
@@ -4918,7 +4920,15 @@ internal class MiniPlayerController(
 
     fun spreadCollapseAt(x: Float, y: Float): Boolean {
         val s = spread ?: return false
-        if (s.phase != SPREAD_OPEN && s.phase != SPREAD_CLOSING) return false
+        if (s.phase == SPREAD_WAIT) return false
+        val mediaItem = s.items.firstOrNull { it.key == MUSIC_ISLAND }
+        val mediaBox = mediaItem?.morph?.containerBox()
+        if (mediaBox != null && x >= mediaBox.x && x < mediaBox.x + mediaBox.w &&
+            y >= mediaBox.y && y < mediaBox.y + mediaBox.h) return true
+        val media = mediaItem?.let { item ->
+            item.native?.takeIf { it.isAttachedToWindow } ?: transitionHeader()
+        }
+        if (media != null && onButton(media, x, y)) return true
         val stack = notificationStack() ?: return false
         val rect = android.graphics.Rect()
         return (0 until stack.childCount).any { i ->
@@ -4931,12 +4941,13 @@ internal class MiniPlayerController(
 
     fun beginSpreadCollapse(startY: Float): Boolean {
         val s = spread ?: return false
-        if (s.phase != SPREAD_OPEN && s.phase != SPREAD_CLOSING) return false
+        if (s.phase == SPREAD_WAIT) return false
         if (s.phase == SPREAD_OPEN) {
             s.islandsY = NumState.scrollTo("NUMBER") ?: s.islandsY
             startSpreadMorphs(s, toCards = false)
-            s.phase = SPREAD_CLOSING
         }
+        s.finger = null
+        s.phase = SPREAD_CLOSING
         s.collapseFinger = SpreadCollapseFinger(startY, s.progress, collapseRange(s))
         s.since = android.os.SystemClock.uptimeMillis()
         s.visualAt = s.since
@@ -5170,13 +5181,15 @@ internal class MiniPlayerController(
         // to them coming in (its flows are synchronous): the list asked after that is not undone.
         val measured = s.focusBefore?.let { before -> NumState.focusCount()?.let { it >= before + coming } } ?: true
         val waited = android.os.SystemClock.uptimeMillis() - s.since
-        if ((!ready || !measured) && waited < ROW_WAIT_MS) return
+        val waitLimit = if (s.finger != null) SPREAD_TOUCH_WAIT_MS else ROW_WAIT_MS
+        if ((!ready || !measured) && waited < waitLimit) return
         // Let go before the rows were in, short of opening: nothing opened.
         val finger = s.finger
         if (finger != null && finger.ended && !finger.toList) {
             endSpread(folded = true, why = "let go before the list")
             return
         }
+        if (finger != null) player?.clearNudge()
         if (finger?.ended == true) s.finger = null
         val held = s.finger
         s.islandsY = NumState.scrollTo("NUMBER") ?: NumState.position() ?: 0
@@ -5190,11 +5203,15 @@ internal class MiniPlayerController(
         s.lastY = Int.MIN_VALUE
         // Under a finger the stack goes where it takes it (followFinger), from where it is now.
         LockIslands.openStack("spread", scroll = held == null)
-        if (held != null) held.base = held.pulled()
+        if (held != null) {
+            // Carry the distance already travelled while the stack prepared its rows.
+            held.base = 0f
+            followFinger(s, held)
+        }
         // A short or unavailable scroll range can read as fully open on this first frame.
         // The visible islands still begin at their folded pose and catch up over real frames.
         s.rawProgress = spreadProgress(s, NumState.position() ?: s.islandsY)
-        applySpread(s, if (s.stacked) 0f else s.rawProgress)
+        applySpread(s, if (s.stacked && held == null) 0f else s.rawProgress)
         spreadTrace("spread out after ${waited}ms ready=$ready measured=$measured: " + describeSpread())
     }
 
@@ -5288,6 +5305,9 @@ internal class MiniPlayerController(
 
     private fun applySpread(s: Spread, p: Float) {
         s.progress = p
+        val geometry = player?.restBoxOnScreen()?.let { box ->
+            LockscreenSpreadGeometry.begin(host, box.x, box.y, box.w, box.h, p)
+        }
         var hiddenTurn = 0
         for (item in s.items) {
             val itemProgress = if (s.stacked && item.seat == SEAT_HIDDEN && !item.wasOut) {
@@ -5298,6 +5318,9 @@ internal class MiniPlayerController(
             val m = item.morph
             if (m != null) {
                 m.led(itemProgress)
+                m.containerBox()?.let { box ->
+                    geometry?.addMorph(m.card, box.x, box.y, box.w, box.h)
+                }
                 if (s.stacked && item.standIn) item.view?.alpha = when (item.seat) {
                     SEAT_SMALL -> MiniPlayerGeometry.STACK_BACK_ALPHA +
                         (1f - MiniPlayerGeometry.STACK_BACK_ALPHA) * itemProgress
@@ -5317,6 +5340,8 @@ internal class MiniPlayerController(
         }
         // Morphing, the stack island's place is the morph's view: fading it too fought the morph.
         if (s.items.none { it.lead && it.morph != null }) fadeSeat(s.stackSeat, 1f - p)
+        geometry?.apply(notificationStack())
+        updateDiscs()
     }
 
     /**
@@ -5374,10 +5399,16 @@ internal class MiniPlayerController(
         val y = NumState.position() ?: return
         val p = s.collapseFinger?.progress() ?: spreadProgress(s, y)
         s.rawProgress = p
-        if (s.items.any { it.morph?.active == false }) {
-            // The lock screen's guard ended a morph (asleep, say): straight to the nearer end.
-            endSpread(folded = p < 0.5f, why = "a morph was ended")
-            return
+        for (item in s.items) {
+            if (item.morph?.active != false) continue
+            // A row can detach during a notification update. Let the other cards reach their
+            // destinations and retain the opened list as a target for the next downward drag.
+            item.morph = null
+            if (item.standIn) item.view?.let(::recycleSmallView)
+            item.view = null
+            item.standIn = false
+            item.native = null
+            if (item.lead) holdLeadThroughFold(null)
         }
         applySpread(s, visibleSpreadProgress(s, p))
         if (y != s.lastY) spreadFrameLog(s, y, p)
@@ -5487,8 +5518,12 @@ internal class MiniPlayerController(
 
     /** The finger on a pulled-open spread moved (the pill's route, as noteDragMove). */
     fun spreadFingerMove(y: Float): Boolean {
-        val f = spread?.finger?.takeIf { !it.ended } ?: return false
+        val s = spread ?: return false
+        val f = s.finger?.takeIf { !it.ended } ?: return false
         f.y = y
+        if (s.phase == SPREAD_WAIT) {
+            player?.setNudge(0f, -(f.pulled() * 0.4f).coerceIn(0f, dp(40f).toFloat()))
+        }
         return true
     }
 
@@ -5520,6 +5555,7 @@ internal class MiniPlayerController(
 
     /** The list is open: the cards are the lock screen's own, the row's views put away. */
     private fun finishOpen(s: Spread, y: Int) {
+        LockscreenSpreadGeometry.clear(host)
         s.collapseFinger = null
         holdLeadThroughFold(null)
         for (item in s.items) {
@@ -5620,6 +5656,8 @@ internal class MiniPlayerController(
      */
     private fun endSpread(folded: Boolean, why: String) {
         val s = spread ?: return
+        if (s.phase == SPREAD_WAIT && s.finger != null) player?.clearNudge()
+        LockscreenSpreadGeometry.clear(host)
         spread = null
         Gen.unframe(spreadFrame)
         holdLeadThroughFold(null)
@@ -6450,11 +6488,21 @@ internal class MiniPlayerController(
         private set
 
     /**
-     * The list at its top ([MiniPlayerCollapseGesture.atListTop]). Its rest is 0 except with the
-     * stack island opened out as the list, where the lock screen scrolls it down under the clock.
+     * A spread's open list rests at its measured scroll, even without a notification island.
+     * Extra scroll beyond that position still belongs to the native list.
      */
     fun nativeStackAtTop(readRest: Boolean): Boolean {
-        if (readRest) restScrollY = if (LockIslands.isReleased(STACK_ISLAND)) listRestScroll() else 0f
+        val openSpread = spread?.takeIf { it.phase != SPREAD_WAIT }
+        // The opening animation owns this scroll. Its last overshoot cannot block a reversal.
+        if (openSpread?.phase == SPREAD_OPENING) return true
+        if (readRest) {
+            restScrollY = when {
+                // A newly opened list may differ from its measured rest by a rounding pixel.
+                openSpread != null -> openSpread.cardsY.toFloat() + dp(2f)
+                LockIslands.isReleased(STACK_ISLAND) -> listRestScroll()
+                else -> 0f
+            }
+        }
         val scrollY = nativeScrollY()
         lastScrollRead = "own=$scrollY/rest=$restScrollY"
         return MiniPlayerCollapseGesture.atListTop(scrollY, restScrollY)
@@ -6913,6 +6961,7 @@ internal class MiniPlayerController(
             var disc = discs[side]
             if (!shown) {
                 if (disc != null && disc.visibility != View.GONE) disc.visibility = View.GONE
+                LockscreenShortcutGlassOwnership.setCapsuleDiscVisible(button, false)
                 clearButtonSqueeze(side)
                 continue
             }
@@ -6931,6 +6980,8 @@ internal class MiniPlayerController(
                 MiniPlayerRuntime.material(it, loader, notificationMaterial())
             }
             if (disc.visibility != View.VISIBLE) disc.visibility = View.VISIBLE
+            LockscreenShortcutGlassOwnership.setCapsuleDiscVisible(button, true)
+            disc.syncShortcutBackground(button)
         }
         // The squeeze from this frame's row, then the discs from the squeeze - in that order, or
         // the discs are a frame behind the pill that is pushing them.
@@ -7118,6 +7169,11 @@ internal class MiniPlayerController(
         mover(morph)
         mover(group?.follower)
         exchange?.movers?.values?.forEach { if (it.morph !== morph) mover(it.morph) }
+        for (box in LockscreenSpreadGeometry.boxes(host)) {
+            val pusher = CoverMorphMotion.Box(box.left - hostXY[0], box.top - hostXY[1],
+                box.width(), box.height())
+            squeezePushers += MiniSqueeze.Pusher(pusher, pusher.cx(), false, false)
+        }
         squeeze.setScene(pill, running == null, disc(0), disc(1), small, squeezePushers)
     }
 
@@ -7204,6 +7260,7 @@ internal class MiniPlayerController(
     private fun removeDiscs() {
         squeeze.reset()
         for (side in 0..1) {
+            LockscreenShortcutGlassOwnership.setCapsuleDiscVisible(button(side), false)
             clearButtonSqueeze(side)
             discs[side]?.let { d -> runCatching { (d.parent as? ViewGroup)?.removeView(d) } }
             discs[side] = null
@@ -7270,6 +7327,7 @@ internal class MiniPlayerController(
         rowWaitKey = null
         unpinCard()
         if (spread != null) {
+            LockscreenSpreadGeometry.clear(host)
             spread?.items?.forEach { it.morph?.cancel() }
             spread = null
             LockIslands.setSpread(false, folded = true)
@@ -9823,6 +9881,7 @@ private const val REEADD_MAX_MS = 1000L
 
 /** How long a released notification's row may take to be laid out before the pill moves on. */
 private const val ROW_WAIT_MS = 800L
+private const val SPREAD_TOUCH_WAIT_MS = 48L
 
 /** The whole row out as the stack's list (Spread): where it is, and each island's place. */
 private const val SPREAD_WAIT = 0

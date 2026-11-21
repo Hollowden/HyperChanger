@@ -16,6 +16,7 @@ public final class IosNotificationCenterHooks {
     private IosNotificationCenterHooks() {}
 
     public static void install(ClassLoader loader) {
+        ControlCenterBackdropHandoff.install(loader);
         IosShadeBackdropBlur.install(loader);
         try {
             IosNotificationAnimationHooks.deoptimize(Xp.findClass(

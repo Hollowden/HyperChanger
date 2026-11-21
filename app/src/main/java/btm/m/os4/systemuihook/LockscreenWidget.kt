@@ -31,6 +31,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import btm.m.os4.systemuihook.hypermusiccover.next.island.MediaCardMorphState
 import java.lang.ref.WeakReference
 import java.util.Calendar
 import java.util.Collections
@@ -53,9 +54,8 @@ private const val MODULE_PACKAGE = "btm.m.os4.systemuihook"
 private const val CLOCK_DATA_UTILS_CLASS = "com.miui.clock.utils.DataUtils"
 private const val WIDGET_WIDTH_DP = 360f
 private const val WIDGET_HEIGHT_DP = 64f
-private const val WIDGET_PRESENTATION_POSITION_DURATION_MS = 360L
 private const val WIDGET_COMBINATION_TWO_HEIGHT_DP = 64f
-private const val WIDGET_VERTICAL_OFFSET_DP = 80f
+private const val WIDGET_VERTICAL_OFFSET_DP = 76f
 private const val WIDGET_TEXT_SIZE_SP = 15.3f
 private const val WIDGET_COMBINATION_METRIC_TEXT_SIZE_SP = 12.24f
 private const val WIDGET_ROW_HEIGHT_DP = 20
@@ -1122,17 +1122,6 @@ internal class LockscreenWidgetController(
     private var targetVisible = false
     private var appearanceAnimating = false
     private var hideAnimationRunning = false
-    private var presentationPositionAnimating = false
-    private var positionAnimationTargetX = Float.NaN
-    private var positionAnimationTargetY = Float.NaN
-    private val finishPresentationPositionAnimation = Runnable {
-        presentationPositionAnimating = false
-        positionAnimationTargetX = Float.NaN
-        positionAnimationTargetY = Float.NaN
-        view?.let { widget ->
-            if (widget.isAttachedToWindow && widget.visibility == View.VISIBLE) position()
-        }
-    }
     private var lastLockscreenVisible: Boolean? = null
     private var notificationStack: WeakReference<View>? = null
     private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -1200,11 +1189,7 @@ internal class LockscreenWidgetController(
         runCatching { view?.let(host::removeView) }
         handler.removeCallbacksAndMessages(null)
         host.removeCallbacks(animationFollower)
-        host.removeCallbacks(finishPresentationPositionAnimation)
         followerPosted = false
-        presentationPositionAnimating = false
-        positionAnimationTargetX = Float.NaN
-        positionAnimationTargetY = Float.NaN
         view = null
         displayedItemMask = -1
         displayedItemOrder = emptyList()
@@ -1235,15 +1220,6 @@ internal class LockscreenWidgetController(
     }
 
     override fun onMediaPresentationChanged(presentation: LockscreenMediaPresentation) {
-        // The media header is inserted/removed from the notification stack asynchronously.
-        // Keep the widget's current position as the origin and retarget it as the stack settles,
-        // otherwise notification avoidance moves it above the island in one traversal.
-        presentationPositionAnimating = true
-        host.removeCallbacks(finishPresentationPositionAnimation)
-        host.postDelayed(
-            finishPresentationPositionAnimation,
-            WIDGET_PRESENTATION_POSITION_DURATION_MS + 80L,
-        )
         host.post(::refresh)
     }
 
@@ -1697,32 +1673,15 @@ internal class LockscreenWidgetController(
         val targetX = centerX - widget.width / 2f - widget.left
         val normalTargetY = centerY - widget.height / 2f - dp(WIDGET_VERTICAL_OFFSET_DP) - widget.top
         val notificationTargetY = if (preferences.getBoolean(KEY_LOCKSCREEN_WIDGET_NOTIFICATION_AVOID, true)) {
-            firstVisibleNotificationTop()?.let { notificationTop ->
+            firstVisibleNotificationTop(hostLocation[1])?.let { notificationTop ->
                 notificationTop - dp(NOTIFICATION_SAFE_GAP_DP) - widget.height - widget.top
             }
         } else {
             null
         }
         val targetY = notificationTargetY?.let { minOf(normalTargetY, it) } ?: normalTargetY
-        if (presentationPositionAnimating) {
-            val targetChanged = positionAnimationTargetX.isNaN() ||
-                kotlin.math.abs(positionAnimationTargetX - targetX) > 1f ||
-                kotlin.math.abs(positionAnimationTargetY - targetY) > 1f
-            if (targetChanged) {
-                positionAnimationTargetX = targetX
-                positionAnimationTargetY = targetY
-                if (!appearanceAnimating) widget.animate().cancel()
-                widget.animate()
-                    .translationX(targetX)
-                    .translationY(targetY)
-                    .setDuration(WIDGET_PRESENTATION_POSITION_DURATION_MS)
-                    .setInterpolator(android.view.animation.DecelerateInterpolator(1.35f))
-                    .start()
-            }
-        } else {
-            widget.translationX = targetX
-            widget.translationY = targetY
-        }
+        widget.translationX = targetX
+        widget.translationY = targetY
         if (!appearanceAnimating) syncShortcutAppearance(widget)
     }
 
@@ -1885,7 +1844,9 @@ internal class LockscreenWidgetController(
         kotlin.math.abs(this - other) <= 0.01f
 
     /** Returns the top of the first real, visible notification relative to the widget host. */
-    private fun firstVisibleNotificationTop(): Float? {
+    private fun firstVisibleNotificationTop(hostScreenY: Int): Float? {
+        val spreadTop = LockscreenSpreadGeometry.screenTop(host.rootView)
+        if (spreadTop.isFinite()) return spreadTop - hostScreenY
         val stack = notificationStack?.get()?.takeIf { it.isAttachedToWindow }
             ?: findViewByIdName(host.rootView, setOf("notification_stack_scroller"))?.also {
                 notificationStack = WeakReference(it)
@@ -1908,7 +1869,7 @@ internal class LockscreenWidgetController(
         }
         fun visitMediaHeader(candidate: View) {
             if (!isVisibleForNotificationAvoidance(candidate)) return
-            if (candidate.isMediaHeaderForNotificationAvoidance()) {
+            if (MediaCardMorphState.isMediaHeader(candidate)) {
                 recordTop(candidate)
                 return
             }
@@ -1920,26 +1881,22 @@ internal class LockscreenWidgetController(
         // Standard notifications are children of the stack. MIUI's media header is not an
         // ExpandableNotificationRow and may instead be hosted directly below the lockscreen root.
         stack?.takeIf(::isVisibleForNotificationAvoidance)?.let(::visitNotificationRow)
-        host.rootView?.let(::visitMediaHeader)
-        val notificationScreenTop = top ?: return null
-        val hostLocation = IntArray(2).also(host::getLocationOnScreen)
-        return notificationScreenTop - hostLocation[1].toFloat()
-    }
-
-    private fun View.isMediaHeaderForNotificationAvoidance(): Boolean {
-        var type: Class<*>? = javaClass
-        while (type != null) {
-            if (type.name == "com.android.systemui.statusbar.notification.mediacontrol.MiuiMediaHeaderView") {
-                return true
-            }
-            type = type.superclass
+        val root = host.rootView
+        val morphTop = MediaCardMorphState.screenTop(root)
+        if (morphTop.isFinite()) {
+            val screenTop = morphTop.roundToInt()
+            top = top?.let { minOf(it, screenTop) } ?: screenTop
+        } else {
+            visitMediaHeader(root)
         }
-        return false
+        val notificationScreenTop = top ?: return null
+        return notificationScreenTop - hostScreenY.toFloat()
     }
 
     private fun isVisibleForNotificationAvoidance(candidate: View): Boolean =
-        candidate.visibility == View.VISIBLE && candidate.alpha > 0.01f &&
-            candidate.width > 0 && candidate.height > dp(24f)
+        candidate.visibility == View.VISIBLE &&
+            candidate.width > 0 && candidate.height > dp(24f) &&
+            LockscreenNotificationDrawVisibility.alpha(candidate) > 0.01f
 
     private fun syncShortcutAppearance(widget: LockscreenWidgetView) {
         // The lock-screen clock and shortcut surfaces use the same swipe/AOD
