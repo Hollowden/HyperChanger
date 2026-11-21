@@ -2,6 +2,8 @@
 >
 > 基于 [ColdP/HyperChanger](https://github.com/ColdP/HyperChanger)，保留原作者署名与 AGPL-3.0 许可证，非官方构建。
 >
+> 近期更新包括小米桌面 `8.01.02.9259` 的 Dock 和解锁跟随、通知栏横滑时的控制中心模糊、锁屏胶囊手势，以及小黑盒白天模式的玻璃底栏。修订经过与真机验证见 [个人版改动记录](PERSONAL_CHANGELOG.md)。
+>
 > 修复 OS4.0.4.0.XPBCNXM / 桌面 8.01.02.8583 的 Dock 解锁入场动画。2026-11-04 在 Xiaomi 17 Pro Max 上验证：动画 Hook 加载、Dock 背景绑定、解锁跟随与恢复正常，用户确认效果成功；测试只重启桌面，未重启手机。其他系统版本未验证。
 >
 > 另含拨号盘圆底留白调整、面部解锁 Dock 闪现修正，以及 [iOS 通知中心清除按钮与反馈修复](IOS_SHADE_FIX.md)。
