@@ -108,6 +108,9 @@ object ModulePresetCodec {
                 completeGmsUnlockPreset(values)
                 completeGmsQuickShareIslandPreset(values)
             }
+            if (groupName == SETTINGS_APPEARANCE_PREFERENCES) {
+                completeSettingsCardOpacityPreset(values)
+            }
             groups.put(groupName, values)
         }
         return JSONObject()
@@ -175,6 +178,9 @@ object ModulePresetCodec {
                 completePowerBatteryPreset(values)
                 completeGmsUnlockPreset(values)
                 completeGmsQuickShareIslandPreset(values)
+            }
+            if (groupName == SETTINGS_APPEARANCE_PREFERENCES) {
+                completeSettingsCardOpacityPreset(values)
             }
             PreviewGroup(
                 groupName,
@@ -250,6 +256,9 @@ object ModulePresetCodec {
                 completeGmsUnlockPreset(values)
                 completeGmsQuickShareIslandPreset(values)
             }
+            if (groupName == SETTINGS_APPEARANCE_PREFERENCES) {
+                completeSettingsCardOpacityPreset(values)
+            }
             val preserveMissingNavigation = groupName == REMOTE_PREFERENCE_GROUP
             applyValues(context.getSharedPreferences(groupName, Context.MODE_PRIVATE), values, replace = true,
                 preserveMissingNavigation = preserveMissingNavigation)
@@ -272,6 +281,15 @@ object ModulePresetCodec {
             JSONArray(value.filterIsInstance<String>().sorted()),
         )
         else -> error("不支持的设置类型: ${value::class.java.name}")
+    }
+
+    private fun completeSettingsCardOpacityPreset(values: JSONObject) {
+        if (!values.has(DEVICE_CARD_OPACITY_KEY)) {
+            values.put(DEVICE_CARD_OPACITY_KEY, typed("int", DEFAULT_DEVICE_CARD_OPACITY))
+        }
+        if (!values.has(HOME_CARD_OPACITY_KEY)) {
+            values.put(HOME_CARD_OPACITY_KEY, typed("int", DEFAULT_HOME_CARD_OPACITY))
+        }
     }
 
     private fun typed(type: String, value: Any): JSONObject = JSONObject()

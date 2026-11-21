@@ -5642,7 +5642,21 @@ private fun SettingsAppearancePage(
                         defaultValue = 100f,
                         enabled = enabled,
                     )
-OverlayDropdownPreference(
+                    val cardOpacity = if (home) appearance.homeCardOpacity else appearance.deviceCardOpacity
+                    EditableSliderPreference(
+                        value = cardOpacity.toFloat(),
+                        onValueChange = { value ->
+                            change { if (home) it.copy(homeCardOpacity = value.toInt()) else it.copy(deviceCardOpacity = value.toInt()) }
+                        },
+                        onValueChangeFinished = {},
+                        title = tr("卡片不透明度", "卡片不透明度"),
+                        valueText = "$cardOpacity%",
+                        valueRange = 0f..100f,
+                        steps = 99,
+                        defaultValue = (if (home) DEFAULT_HOME_CARD_OPACITY else DEFAULT_DEVICE_CARD_OPACITY).toFloat(),
+                        enabled = enabled,
+                    )
+                    OverlayDropdownPreference(
                         title = tr("字体颜色", "字体颜色"),
                         items = listOf(tr("默认", "默认"), tr("浅色", "浅色"), tr("深色", "深色")),
                         selectedIndex = font,

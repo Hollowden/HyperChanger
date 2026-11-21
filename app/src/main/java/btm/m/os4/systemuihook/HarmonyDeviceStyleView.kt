@@ -302,6 +302,7 @@ class HarmonyInfoCardsView(
     private val ring = StorageRingView(context)
     private var decodedImageKey = ""
     private var currentScale = 100
+    private var cardOpacity = 100
     private val updateListener = android.view.ViewTreeObserver.OnPreDrawListener {
         refresh(currentScale)
         true
@@ -320,8 +321,9 @@ class HarmonyInfoCardsView(
         refresh(currentScale)
     }
 
-    fun refresh(imageScale: Int) {
+    fun refresh(imageScale: Int, opacity: Int = cardOpacity) {
         currentScale = imageScale
+        cardOpacity = opacity
         val night = isNight()
         val primary = if (night) 0xFFF7F8FC.toInt() else 0xFF17181C.toInt()
         val secondary = if (night) 0xB8E9ECF5.toInt() else 0x991B1D23.toInt()
@@ -441,7 +443,8 @@ class HarmonyInfoCardsView(
     }.getOrNull()
 
     private fun cardBackground() = GradientDrawable().apply {
-        setColor(tutorialCardBackground())
+        val color = tutorialCardBackground()
+        setColor((color and 0x00FFFFFF) or (((color ushr 24) * cardOpacity / 100) shl 24))
         cornerRadius = dp(28).toFloat()
     }
 

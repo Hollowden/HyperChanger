@@ -31,6 +31,8 @@ object SettingsAppearanceApplier {
     private val fallbackTextModes = Collections.synchronizedMap(WeakHashMap<TextView, Int>())
     private val logoSessions = Collections.synchronizedMap(WeakHashMap<Any, LogoSession>())
     private val cardSessions = Collections.synchronizedMap(WeakHashMap<Activity, CardAlphaSession>())
+    private val deviceCardOpacitySessions = WeakHashMap<Any, DeviceCardOpacitySession>()
+    private val preferenceCardOpacitySessions = WeakHashMap<Any, SettingsPreferenceCardOpacitySession>()
     private val tutorialCards = Collections.synchronizedMap(WeakHashMap<Any, TutorialCardSession>())
     private val deviceInfoCards = Collections.synchronizedMap(WeakHashMap<Any, DeviceInfoCardsSession>())
     private val harmonyCards = Collections.synchronizedMap(WeakHashMap<Any, HarmonyCardSession>())
@@ -51,6 +53,9 @@ object SettingsAppearanceApplier {
             val context = fragment.javaClass.getMethod("getContext").invoke(fragment) as? android.content.Context ?: return
             val source = SettingsAppearanceSources.query(context, APPEARANCE_SLOT_DEVICE)
             fragmentActivity(fragment)?.let { applyCardOpacity(it, source.lightCardOpacity) }
+            val root = fragment.javaClass.getMethod("getView").invoke(fragment) as? View
+            applyDeviceCardOpacity(fragment, root, source)
+            applyPreferenceCardOpacity(fragment, root, source, devicePage = true)
             val old = deviceLayers[fragment]
             Log.i(TAG, "device apply class=${fragment.javaClass.name} exists=${source.exists} enabled=${source.enabled} mime=${source.mime} size=${source.size}")
             if (!source.exists) {
@@ -128,11 +133,42 @@ object SettingsAppearanceApplier {
         }
     }
 
+    private fun applyDeviceCardOpacity(owner: Any, root: View?, source: SettingsAppearanceSource) {
+        val current = deviceCardOpacitySessions[owner]
+        if (root == null || !source.exists || source.deviceCardOpacity == 100 ||
+            root.findViewById<View>(root.resources.getIdentifier("device_params", "id", root.context.packageName)) == null
+        ) {
+            deviceCardOpacitySessions.remove(owner)?.remove()
+            return
+        }
+        val session = if (current?.root === root) current else {
+            current?.remove()
+            DeviceCardOpacitySession(root).also { deviceCardOpacitySessions[owner] = it }
+        }
+        session.update(source.deviceCardOpacity)
+    }
+
+    private fun applyPreferenceCardOpacity(owner: Any, root: View?, source: SettingsAppearanceSource, devicePage: Boolean) {
+        val opacity = if (devicePage) source.deviceCardOpacity else source.homeCardOpacity
+        if (root == null || !source.exists || opacity == 100) {
+            preferenceCardOpacitySessions.remove(owner)?.remove()
+            return
+        }
+        val current = preferenceCardOpacitySessions[owner]
+        val session = if (current?.root === root) current else {
+            current?.remove()
+            SettingsPreferenceCardOpacitySession(root, devicePage).also { preferenceCardOpacitySessions[owner] = it }
+        }
+        session.update(opacity)
+    }
+
     fun stopDevice(fragment: Any?) {
         fragment?.let { deviceLayers[it]?.view?.onHostStop() }
     }
     fun destroyDevice(fragment: Any?) {
         if (fragment == null) return
+        deviceCardOpacitySessions.remove(fragment)?.remove()
+        preferenceCardOpacitySessions.remove(fragment)?.remove()
         deviceLayers.remove(fragment)?.remove()
         tutorialCards.remove(fragment)?.remove()
         deviceInfoCards.remove(fragment)?.remove()
@@ -144,6 +180,7 @@ object SettingsAppearanceApplier {
         if (activity == null) return
         layers.remove(activity)?.remove()
         cardSessions.remove(activity)?.remove()
+        preferenceCardOpacitySessions.remove(activity)?.remove()
         restoreTextColors(activity.window?.decorView)
     }
 
@@ -232,6 +269,8 @@ object SettingsAppearanceApplier {
     }
 
     private fun applyHarmonyInfoCards(fragment: Any, context: android.content.Context, root: View, image: SettingsAppearanceSource) {
+        val pageBackground = SettingsAppearanceSources.query(context, APPEARANCE_SLOT_DEVICE)
+        val opacity = if (pageBackground.exists) pageBackground.deviceCardOpacity else 100
         val old = harmonyInfoCards[fragment]
         val nameId = context.resources.getIdentifier("device_name_card_view", "id", context.packageName)
         val storageId = context.resources.getIdentifier("device_memory_card_view", "id", context.packageName)
@@ -241,11 +280,12 @@ object SettingsAppearanceApplier {
         if (parent !== storage.parent) return
         if (old != null && old.matches(parent, name, storage, image.cacheKey())) {
             old.enforce()
-            old.view.refresh(image.style2ImageScale)
+            old.view.refresh(image.style2ImageScale, opacity)
             return
         }
         old?.remove()
         val row = HarmonyInfoCardsView(context, name, storage, image)
+        row.refresh(image.style2ImageScale, opacity)
         val index = parent.indexOfChild(name).coerceAtLeast(0)
         // The stock parameter card adds a 12dp top margin. Reduce this
         // replacement row's contribution from 10dp to 5dp so the combined
@@ -564,6 +604,9 @@ object SettingsAppearanceApplier {
     private fun applyActivity(activity: Activity, slot: String) {
         runCatching {
             val source = SettingsAppearanceSources.query(activity, slot)
+            if (slot == APPEARANCE_SLOT_HOME) {
+                applyPreferenceCardOpacity(activity, activity.findViewById(android.R.id.content), source, devicePage = false)
+            }
             applyCardOpacity(activity, source.lightCardOpacity)
             val old = layers[activity]
             if (!source.exists) {
