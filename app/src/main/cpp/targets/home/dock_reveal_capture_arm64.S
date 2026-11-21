@@ -4,25 +4,44 @@
 // Dart pointer. No calls, allocations, safepoints or FP changes are introduced.
 .text
 .p2align 4
-.macro check_cid value, done=.Lcapture_done
+.macro check_cid legacy, current, done=.Lcapture_done
     tbz x16, #0, \done
     cmp x16, x22
     b.eq \done
     ldur w10, [x16, #-1]
     ubfx w10, w10, #12, #20
-    mov w11, #\value
-    .if \value != 140
+    mov w11, #\legacy
+    .if \legacy != \current
+    adrp x17, dock_reveal_render_field_delta
+    ldr w17, [x17, :lo12:dock_reveal_render_field_delta]
+    cbz w17, .Llegacy_cid_\@
+    mov w11, #\current
+    b .Lcompare_cid_\@
+.Llegacy_cid_\@:
     adrp x17, dock_reveal_cid_delta
     ldr w17, [x17, :lo12:dock_reveal_cid_delta]
     add w11, w11, w17
+.Lcompare_cid_\@:
     .endif
     cmp w10, w11
     b.ne \done
 .endm
-.macro follow offset, cid, done=.Lcapture_done
+// The 9259 RenderBox descendants add three compressed fields before the
+// widget-specific fields. RenderObject and layer fields keep their offsets.
+.macro render_field dest, base, offset
+    adrp x17, dock_reveal_render_field_delta
+    ldr w17, [x17, :lo12:dock_reveal_render_field_delta]
+    add x17, \base, x17
+    ldur \dest, [x17, #\offset]
+.endm
+.macro follow offset, legacy, current, done=.Lcapture_done, render=0
+    .if \render
+    render_field w16, x16, \offset
+    .else
     ldur w16, [x16, #\offset]
+    .endif
     add x16, x16, x28, lsl #32
-    check_cid \cid, \done
+    check_cid \legacy, \current, \done
 .endm
 .macro native_glass done
     ldur x16, [x16, #7]
@@ -59,40 +78,40 @@ dock_reveal_capture_entry:
     mrs x9, nzcv
     str x9, [x15, #-16]!
     mov x16, x1
-    check_cid 5495
-    follow 0x13, 5493
+    check_cid 5495, 5557
+    follow 0x13, 5493, 5555
     mov x9, x16 // Keep the glass-only clip, before validating its ancestors.
-    follow 0x13, 5488
+    follow 0x13, 5488, 5550
     mov x12, x16
-    follow 0x63, 9066 // The original Dock's private shape clipper.
+    follow 0x63, 9066, 9146, .Lcapture_done, 1 // The original Dock's private shape clipper.
     mov x16, x12
-    follow 0x13, 5373
+    follow 0x13, 5373, 5432
     mov x12, x16 // Same Stack owns the glass and original icon row.
-    follow 0x13, 5414
-    follow 0x13, 5538
-    follow 0x13, 5505
-    follow 0x13, 5513
-    follow 0x13, 5511
-    follow 0x13, 5471
-    follow 0x13, 5440 // Identity check only; this wrapper also contains icons.
+    follow 0x13, 5414, 5473
+    follow 0x13, 5538, 5600
+    follow 0x13, 5505, 5567
+    follow 0x13, 5513, 5575
+    follow 0x13, 5511, 5573
+    follow 0x13, 5471, 5533
+    follow 0x13, 5440, 5500 // Identity check only; this wrapper also contains icons.
     // A retained icon need not run updateRenderObject again. Observe its
     // current pose from the attached sibling graph on this paint as well.
     mov x16, x12
-    follow 0x67, 5475, .Lbackground_bind // Stack.lastChild: RenderPadding.
-    follow 0x5b, 5398, .Lbackground_bind // Padding.child: original icon row.
-    follow 0x63, 5440, .Lbackground_bind // RenderFlex.firstChild.
+    follow 0x67, 5475, 5537, .Lbackground_bind, 1 // Stack.lastChild: RenderPadding.
+    follow 0x5b, 5398, 5457, .Lbackground_bind, 1 // Padding.child: original icon row.
+    follow 0x63, 5440, 5500, .Lbackground_bind, 1 // RenderFlex.firstChild.
     mov x12, x16
-    follow 7, 5663, .Lbackground_bind
+    follow 7, 5663, 5725, .Lbackground_bind
     ldur w10, [x16, #0xf]
     cmp w10, w22
     b.ne .Lbackground_bind
     mov x16, x12
-    follow 0x6f, 9369, .Lbackground_bind
+    follow 0x6f, 9369, 9451, .Lbackground_bind, 1
     ldur x10, [x16, #0xf]
     adrp x17, dock_reveal_icon_y
     add x17, x17, :lo12:dock_reveal_icon_y
     str x10, [x17]
-    ldur x10, [x12, #0x5f]
+    render_field x10, x12, 0x5f
     adrp x17, dock_reveal_icon_alpha
     add x17, x17, :lo12:dock_reveal_icon_alpha
     str x10, [x17]
@@ -105,11 +124,11 @@ dock_reveal_capture_entry:
     // The common RenderHyperTransform may be identity and have no engine
     // layer. Its existence is not a prerequisite for binding the glass clip.
     mov x16, x9 // Animate the glass clip, not the wrapper containing icons.
-    follow 0x33, 5269 // RenderClipRRect's own LayerHandle.
-    follow 0xb, 5289  // Existing ClipRRectLayer, excluding the icon sibling.
-    follow 0x27, 9382 // ClipRRectEngineLayer.
-    follow 7, 10849   // Native engine-layer wrapper.
-    follow 7, 140     // VM native-fields storage.
+    follow 0x33, 5269, 5328 // RenderClipRRect's own LayerHandle.
+    follow 0xb, 5289, 5348  // Existing ClipRRectLayer, excluding the icon sibling.
+    follow 0x27, 9382, 9464 // ClipRRectEngineLayer.
+    follow 7, 10849, 10939   // Native engine-layer wrapper.
+    follow 7, 140, 140     // VM native-fields storage.
     native_glass .Lcapture_done
     ldr x10, [x16, #0x20] // Stable across retained-layer replacements.
     cbz x10, .Lcapture_done
@@ -125,25 +144,11 @@ dock_reveal_capture_entry:
     ldr x16, [x16, :lo12:dock_reveal_capture_original]
     br x16
 .size dock_reveal_capture_entry, .-dock_reveal_capture_entry
-.macro icon_check_cid value
-    tbz x16, #0, .Licon_done
-    cmp x16, x22
-    b.eq .Licon_done
-    ldur w10, [x16, #-1]
-    ubfx w10, w10, #12, #20
-    mov w11, #\value
-    .if \value != 140
-    adrp x17, dock_reveal_cid_delta
-    ldr w17, [x17, :lo12:dock_reveal_cid_delta]
-    add w11, w11, w17
-    .endif
-    cmp w10, w11
-    b.ne .Licon_done
+.macro icon_check_cid legacy, current
+    check_cid \legacy, \current, .Licon_done
 .endm
-.macro icon_follow offset, cid
-    ldur w16, [x16, #\offset]
-    add x16, x16, x28, lsl #32
-    icon_check_cid \cid
+.macro icon_follow offset, legacy, current, render=0
+    follow \offset, \legacy, \current, .Licon_done, \render
 .endm
 
 // Last updateRenderObject setter: opacity, offset and scale are already updated.
@@ -159,45 +164,45 @@ dock_reveal_icon_entry:
     mrs x9, nzcv
     str x9, [x15, #-16]!
     mov x16, x1
-    icon_check_cid 5440
+    icon_check_cid 5440, 5500
     mov x9, x16
-    icon_follow 7, 5663
+    icon_follow 7, 5663, 5725
     ldur w10, [x16, #0xf]
     cmp w10, w22
     b.ne .Licon_done
     mov x16, x9
-    icon_follow 0x13, 5398
-    icon_follow 0x13, 5475
-    icon_follow 0x13, 5373
+    icon_follow 0x13, 5398, 5457
+    icon_follow 0x13, 5475, 5537
+    icon_follow 0x13, 5373, 5432
     mov x12, x16 // Common Stack, shared by the icon row and glass sibling.
-    icon_follow 0x13, 5414
-    icon_follow 0x13, 5538
-    icon_follow 0x13, 5505
-    icon_follow 0x13, 5513
-    icon_follow 0x13, 5511
-    icon_follow 0x13, 5471
-    icon_follow 0x13, 5440
+    icon_follow 0x13, 5414, 5473
+    icon_follow 0x13, 5538, 5600
+    icon_follow 0x13, 5505, 5567
+    icon_follow 0x13, 5513, 5575
+    icon_follow 0x13, 5511, 5573
+    icon_follow 0x13, 5471, 5533
+    icon_follow 0x13, 5440, 5500
     // Identify the actual glass sibling in this same managed graph. Identity
     // transforms deliberately drop LayerHandle.layer, so comparing their old
     // native IDs rejected every icon after a normal unlock. No Dart pointer
     // survives this callback; bind only the verified clip's numeric native ID.
     mov x16, x12
-    icon_follow 0x63, 5488 // Stack.firstChild is the Dock physical shape.
+    icon_follow 0x63, 5488, 5550, 1 // Stack.firstChild is the Dock physical shape.
     mov x12, x16
-    icon_follow 0x63, 9066 // Private Dock clipper, not a workspace icon stack.
+    icon_follow 0x63, 9066, 9146, 1 // Private Dock clipper, not a workspace icon stack.
     mov x16, x12
-    icon_follow 0x5b, 5493 // PhysicalShape.child: existing glass-only clip.
+    icon_follow 0x5b, 5493, 5555, 1 // PhysicalShape.child: existing glass-only clip.
     mov x12, x16
-    icon_follow 0x5b, 5495 // ClipRRect.child must be the background filter.
+    icon_follow 0x5b, 5495, 5557, 1 // ClipRRect.child must be the background filter.
     // Pose belongs to this verified Dock graph even before its first paint
     // creates a native layer. Do not lose the early motion waiting for it.
     mov x16, x9
-    icon_follow 0x6f, 9369 // Original icon Offset (not Size or boxed doubles).
+    icon_follow 0x6f, 9369, 9451, 1 // Original icon Offset (not Size or boxed doubles).
     ldur x10, [x16, #0xf]
     adrp x17, dock_reveal_icon_y
     add x17, x17, :lo12:dock_reveal_icon_y
     str x10, [x17]
-    ldur x10, [x9, #0x5f]
+    render_field x10, x9, 0x5f
     adrp x17, dock_reveal_icon_alpha
     add x17, x17, :lo12:dock_reveal_icon_alpha
     str x10, [x17]
@@ -207,11 +212,11 @@ dock_reveal_icon_entry:
     add x10, x10, #1
     stlr x10, [x17]
     mov x16, x12
-    icon_follow 0x33, 5269
-    icon_follow 0xb, 5289
-    icon_follow 0x27, 9382
-    icon_follow 7, 10849
-    icon_follow 7, 140
+    icon_follow 0x33, 5269, 5328
+    icon_follow 0xb, 5289, 5348
+    icon_follow 0x27, 9382, 9464
+    icon_follow 7, 10849, 10939
+    icon_follow 7, 140, 140
     native_glass .Licon_done
     ldr x10, [x16, #0x20]
     cbz x10, .Licon_done
