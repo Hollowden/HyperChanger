@@ -1,8 +1,8 @@
 # 小黑盒 LiquidTab 底栏补丁
 
-这组补丁基于个人 HyperChanger APK 中已重定位的 SuperLiquid 适配。补丁保留小黑盒底栏的布局、图标和交互，仅调整小黑盒的玻璃材质和安装时的重应用行为。白天模式关闭额外的方向性边缘高光。深色模式继续使用双光源边缘高光。
+这组补丁基于个人 HyperChanger APK 中已重定位的 SuperLiquid 适配。补丁保留小黑盒底栏的布局、图标和交互，仅调整小黑盒的玻璃材质和安装时的重应用行为。深色和浅色模式均关闭额外的方向性边缘高光。
 
-材质辅助类的双光源逻辑改编自 LiquidTab v2.1.0 的 `GlassHostLayout`，使用 GPL-3.0-only 授权。原项目与许可证见 [LiquidTab v2.1.0](https://github.com/big-dictator/LiquidTab/tree/v2.1.0) 和 [GPL 许可证](LICENSE-GPL-3.0.txt)。
+材质参数及早期版本的双光源逻辑参考 LiquidTab v2.1.0 的 `GlassHostLayout`。辅助类继续使用 GPL-3.0-only 授权。原项目与许可证见 [LiquidTab v2.1.0](https://github.com/big-dictator/LiquidTab/tree/v2.1.0) 和 [GPL 许可证](LICENSE-GPL-3.0.txt)。
 
 ## 重建个人 APK
 

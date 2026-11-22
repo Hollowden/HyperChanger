@@ -9,6 +9,8 @@ from zipfile import ZipFile
 SECONDARY = "classes2.dex"
 STABLE = "4e1ca6e3e595d6ddbd4a79430c47a4330f2f5088406e5115bc7bad2710bbcc97"
 LIQUIDTAB = "63024d2c9dfe8cdc3d23c58fb7c983ae600a0163565bd2130e49594771c837b9"
+DAYLIGHT = "c5735ae4731036af57cc14cb3e4838c5d275da5243ae8d390b2d942e031ee100"
+NO_EDGE_GLARE = "23ccbb6b4a33be730e4a1449a2be1825831ffc5ef1896d0b36e77d6e40c2b3f9"
 HELPER = b"Lbtm/m/ported/superliquid/io/github/liuran001/mmliquidglass/HeyboxGlassMaterial;"
 
 
@@ -31,14 +33,14 @@ def main():
     with ZipFile(args.base) as base:
         secondary = base.read(SECONDARY)
         digest = sha256(secondary).hexdigest()
-        if digest not in (STABLE, LIQUIDTAB):
+        if digest not in (STABLE, LIQUIDTAB, DAYLIGHT, NO_EDGE_GLARE):
             parser.error("The base APK does not have a verified Heybox payload.")
         if args.rebuilt_secondary is None:
             with ZipFile(args.output, "x") as output:
                 output.writestr("AndroidManifest.xml", base.read("AndroidManifest.xml"))
                 output.writestr("classes.dex", secondary)
-            print("Extracted the existing LiquidTab port." if digest == LIQUIDTAB else
-                  "Extracted the stable Heybox port. Apply heybox-liquidtab.patch before rebuilding.")
+            print("Extracted the stable Heybox port. Apply heybox-liquidtab.patch before rebuilding."
+                  if digest == STABLE else "Extracted the existing LiquidTab port.")
             return
 
         with ZipFile(args.rebuilt_secondary) as rebuilt:
