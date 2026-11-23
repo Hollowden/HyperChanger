@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <string>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -67,12 +68,36 @@ struct NativeGate {
 std::vector<NativeGate> native_gates;
 std::mutex observer_mutex;
 std::map<std::string, std::optional<std::pair<uint64_t, uint64_t>>> zip_cache;
+// 按运行期不可变代码镜像指纹缓存已扫描结果，避免未适配桌面版本上无限重复全量扫内存导致高功耗
+std::map<uint64_t, uint32_t> scanned_effects_mask;
+std::map<uint64_t, bool> scanned_folder_gens;
+std::map<uint64_t, bool> scanned_multi_split_gens;
 
-std::optional<std::span<const std::byte>> read_blob(std::array<std::byte, 512> &buffer, std::streamsize &size) {
+uint64_t generation_fingerprint(const std::vector<nhk::ExecutableMapping> &generation) {
+    uint64_t h = 14695981039346656037ULL;
+    const auto mix = [&](uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ULL;
+    };
+    for (const auto &m : generation) {
+        mix(static_cast<uint64_t>(m.begin));
+        mix(static_cast<uint64_t>(m.end));
+        mix(m.file_offset);
+        mix(m.inode);
+        mix((static_cast<uint64_t>(m.device_major) << 32) | m.device_minor);
+    }
+    return h;
+}
+
+std::string config_file_path() {
     // Launcher UID can read its own atomically published file. Resolve the active
     // Android user from UID; never depend on root access inside the launcher.
-    const std::string path = "/data/user/" + std::to_string(getuid() / 100000)
+    return "/data/user/" + std::to_string(getuid() / 100000)
         + "/com.miui.home/files/hyperpatch.bin";
+}
+
+std::optional<std::span<const std::byte>> read_blob(std::array<std::byte, 512> &buffer, std::streamsize &size) {
+    const std::string path = config_file_path();
     std::ifstream file(path, std::ios::binary);
     if (!file) return {};
     file.read(reinterpret_cast<char *>(buffer.data()), buffer.size());
@@ -194,10 +219,13 @@ void resolve(const std::vector<nhk::ExecutableMapping> &mappings) {
             return source_at(generation, slot.address) == slot.source;
         });
         if (known == 2) continue;
+        const uint64_t fp = generation_fingerprint(generation);
+        if (scanned_folder_gens.contains(fp)) continue;
         std::vector<uintptr_t> matches;
         size_t total = 0;
         for (const auto &mapping : generation) total += mapping.end - mapping.begin;
         if (total > nhk::kMaxExecutableCodeBytes) continue;
+        scanned_folder_gens[fp] = true;
         for (const auto &mapping : generation) {
             const size_t bytes = mapping.end - mapping.begin;
             std::vector<uint32_t> code(bytes / sizeof(uint32_t));
@@ -353,6 +381,9 @@ bool multi_split_entry_matches(std::span<const uint32_t> code) {
 
 void resolve_multi_split(const std::vector<nhk::ExecutableMapping> &mappings) {
     for (const auto &generation : nhk::runtime_generations(mappings)) {
+        const uint64_t fp = generation_fingerprint(generation);
+        if (scanned_multi_split_gens.contains(fp)) continue;
+        scanned_multi_split_gens[fp] = true;
         std::vector<uintptr_t> supports;
         for (const auto &mapping : generation) {
             const size_t bytes = mapping.end - mapping.begin;
@@ -502,15 +533,27 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                 return slot.native_parameter == 0 && slot.dock == dock && source_at(generation, slot.address) == slot.source;
             });
         };
-        const bool need_glass = settings.enabled && known(false) != home_effects::kGlassFields.size();
-        const bool need_full = full_enabled && std::ranges::count_if(full_glass_slots,[&](const EffectSlot &s) {
+        const bool want_glass = settings.enabled && known(false) != home_effects::kGlassFields.size();
+        const bool want_full = full_enabled && std::ranges::count_if(full_glass_slots,[&](const EffectSlot &s) {
             return source_at(generation,s.address)==s.source;
         }) != home_full_glass::kFields.size();
-        const bool need_dock = settings.dock_enabled && known(true) != 1;
-        const bool need_native = settings.native_dock_enabled && std::ranges::count_if(effect_slots, [&](const EffectSlot &s) {
+        const bool want_dock = settings.dock_enabled && known(true) != 1;
+        const bool want_native = settings.native_dock_enabled && std::ranges::count_if(effect_slots, [&](const EffectSlot &s) {
             return s.native_parameter != 0 && source_at(generation,s.address) == s.source;
         }) != 4;
-        if (!need_glass && !need_dock && !need_native && !need_full) continue;
+        const uint32_t want_mask = (want_glass ? 1u : 0u) | (want_full ? 2u : 0u)
+            | (want_dock ? 4u : 0u) | (want_native ? 8u : 0u);
+        if (want_mask == 0) continue;
+        // 同一不可变运行期镜像若已完成对应特性的完整特征码探测，不再重复做几十 MB 全量扫描
+        const uint64_t fp = generation_fingerprint(generation);
+        uint32_t &done_mask = scanned_effects_mask[fp];
+        const uint32_t pending = want_mask & ~done_mask;
+        if (pending == 0) continue;
+        done_mask |= pending;
+        const bool need_glass = (pending & 1u) != 0;
+        const bool need_full = (pending & 2u) != 0;
+        const bool need_dock = (pending & 4u) != 0;
+        const bool need_native = (pending & 8u) != 0;
         std::vector<uintptr_t> glass, dock, gates, supports, new_supports, newer_supports, strategies, glass_radii, advanced_radii, paddings;
         std::vector<uintptr_t> release8583_supports;
         std::vector<uintptr_t> release8583_strategies, release8583_glass_radii,
@@ -902,8 +945,28 @@ void *worker(void *) {
     bool previous_dock = false;
     bool previous_native_dock = false;
     unsigned tick = 0;
+    const std::string cfg_path = config_file_path();
+    bool has_last_stat = false;
+    off_t last_size = -1;
+    time_t last_mtime_sec = 0;
+    long last_mtime_nsec = 0;
+    ConfigSnapshot snapshot{};
     while (true) {
-        const auto snapshot = read_config();
+        // 先做微秒级 stat() 检测，仅在首次启动或配置文件变更时才重新读取与立刻扫描
+        struct stat st{};
+        const bool stat_ok = (::stat(cfg_path.c_str(), &st) == 0);
+        const bool cfg_changed = (tick == 0)
+            || (stat_ok != has_last_stat)
+            || (stat_ok && (st.st_size != last_size
+                || st.st_mtim.tv_sec != last_mtime_sec
+                || st.st_mtim.tv_nsec != last_mtime_nsec));
+        if (cfg_changed) {
+            has_last_stat = stat_ok;
+            last_size = stat_ok ? st.st_size : -1;
+            last_mtime_sec = stat_ok ? st.st_mtim.tv_sec : 0;
+            last_mtime_nsec = stat_ok ? st.st_mtim.tv_nsec : 0;
+            snapshot = read_config();
+        }
         const auto &settings = snapshot.spacing;
         const auto &material = snapshot.material;
         if (material.enabled != previous_glass || material.dock_enabled != previous_dock
@@ -923,9 +986,20 @@ void *worker(void *) {
             previous = value;
             tick = 0;
         }
-        if (settings.enabled || !slots.empty() || material.enabled || material.dock_enabled
-            || material.native_dock_enabled || snapshot.multi_split.enabled
-            || !effect_slots.empty() || !native_gates.empty()) {
+        const bool full_enabled = material.full_glass_present
+            && (material.desktop_glass.enabled || material.dock_glass.enabled);
+        const bool any_active = settings.enabled || !slots.empty() || material.enabled || material.dock_enabled
+            || material.native_dock_enabled || full_enabled || snapshot.multi_split.enabled
+            || !effect_slots.empty() || !native_gates.empty();
+        // 稳态下避免每 500ms 反复打开并解析数千行 /proc/self/maps：
+        // - 配置变化或冷启动前 20 次（约 2 秒内）立即同步；
+        // - 冷启动后 20~40 次每 2 次同步一次以捕获异步加载的 libapp.so；
+        // - 进入稳态后每 40 次（约 20 秒）做一次低频 COW 护卫与新镜像检查，其余周期直接休眠。
+        const bool should_poll_maps = any_active && (cfg_changed
+            || tick < 20
+            || (tick < 40 && tick % 2 == 0)
+            || (tick % 40 == 0));
+        if (should_poll_maps) {
             const std::lock_guard lock(observer_mutex);
             const auto mappings = inventory();
             for (const auto &slot : slots) {
@@ -933,17 +1007,15 @@ void *worker(void *) {
                 // backing file identity still match. Unknown code is never overwritten.
                 if (source_at(mappings, slot.address) == slot.source) write_branch(slot, settings.enabled);
             }
-            // The controller may calculate its gap during initial layout. A
-            // five-second first retry misses that initialization completely.
-            if (settings.enabled && (slots.empty() || tick % 10 == 0)) resolve(mappings);
-            if (settings.enabled && slots.empty() && tick % 120 == 0)
+            if (settings.enabled) resolve(mappings);
+            if (settings.enabled && slots.empty() && tick == 40)
                 __android_log_print(ANDROID_LOG_WARN, kTag,
                     "Folder resolver pending: mappings=%zu value=%d", mappings.size(), settings.value);
-            update_effects(mappings, material, snapshot.multi_split, tick);
+            update_effects(mappings, material, snapshot.multi_split, cfg_changed ? 0u : tick);
         }
         ++tick;
-        usleep((settings.enabled && slots.empty()) || (snapshot.multi_split.enabled && native_gates.empty())
-            || tick < 40 ? 50000 : 500000);
+        // 冷启动前 20 次使用 100ms 快速捕捉，之后恒定 500ms（杜绝匹配失败时 50ms 死循环空转）
+        usleep(tick < 20 ? 100000 : 500000);
     }
     return nullptr;
 }

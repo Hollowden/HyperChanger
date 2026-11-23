@@ -11,6 +11,7 @@
 1. **清除通知自动上滑收起防卡顿**：修复点击自定义「× 清除」后系统自动收起通知栏时的掉帧与首帧卡片塌缩。
 2. **下拉通知栏 120 FPS 性能重构**：通过 `dumpsys gfxinfo`、`atrace` 与 `simpleperf` 实机火焰图剖析，彻底移除热路径上的高频反射异常堆栈与 5 个前景图层的每帧大半径动态 `RenderEffect` 离屏模糊，将起拉首帧阻塞耗时降低 **92%**（`332 ms → 25.88 ms`）。
 3. **iOS 18 风格「壁纸原位裁切揭示」与交互缺陷修复**：基于 iOS 18 实机逐帧参考，在关闭“分阶段壁纸渐显”（壁纸随下滑）模式时实现壁纸原位固定、水平平直分界线逐步“吃掉”清晰桌面的过渡动效，并修复下拉中途回拉冻住闪现、通知卡片下拉透出桌面光等交互问题。
+4. **修复桌面原生线程 `hc-folder` 后台死循环高功耗 Bug（上游原版问题）**：在桌面版本升级至 `8.01.02.9259` 且开启原生 Dock / 全玻璃特性时，上游原版 `folder_spacing.cpp` 会反复解析数千行 `/proc/self/maps` 并全量扫描 `libapp.so`，导致 `hc-folder` 常驻消耗 ~22% 单核 CPU。修复后稳态 CPU 占用由 **22.0%（44 ticks / 2s）直接降至 0.0%（0 ticks / 5s）**。
 
 ---
 
@@ -66,10 +67,29 @@
 
 ---
 
+### 4. 桌面原生线程 `hc-folder` 高功耗死循环 Bug 修复（上游原版代码溯源）
+
+#### 来源溯源
+- 经核查 `git log` 与 `git diff upstream/main..HEAD -- app/src/main/cpp/targets/home/folder_spacing.cpp`，该文件由上游 `ColdP/HyperChanger` 在 commit `97a4bd2` 原版提交，**并非个人 Fork / Codex 分支改动引入**。
+
+#### 修改前问题与实机剖析数据
+- 当用户开启原生 Dock（`HNDK`）或全玻璃（`HGLS`）等桌面原生特性，且系统桌面已更新至上游尚未完全适配的版本（实测设备：`com.miui.home` `RELEASE-8.01.02.9259`，`/proc/pid/maps` 达 5,079 行）时：
+  1. `worker()` 每 0.5 秒无条件调用 `inventory()` 重新读取并逐行 `sscanf` 解析全部 5,079 行 `/proc/self/maps`；
+  2. 由于 `Native Dock 8583/8593` 布局校验失败且 4 个扩展材质 slot 无法凑满，`update_effects()` 始终判定 `need_native == true` / `need_full == true`，每 5 秒将 `libapp.so` 几十 MB 可执行代码段完整拷贝并暴力扫描 16 套 ARM64 特征码，永不退避；
+  3. 实机 `simpleperf` 热点直接命中 `__svfscanf`、`seq_put_hex_ll`、`show_map` 与 `base.apk` 扫描循环，`hc-folder` 线程静置时持续占用 **22.0% 单核 CPU（44 ticks / 2s）**，累计白白烧掉 **5,625 秒（约 1.56 小时）纯单核满载时间**。
+
+#### 修改后方案与实测效果（`app/src/main/cpp/targets/home/folder_spacing.cpp`）
+- **运行期镜像指纹去重**：引入 `generation_fingerprint()`（对映射区段 `begin/end/file_offset/inode/dev` 做 FNV-1a 哈希）以及 `scanned_effects_mask` / `scanned_folder_gens` / `scanned_multi_split_gens` 缓存。同一不可变代码镜像在某特性位完成过完整扫描后不再反复全量扫内存；若用户开启新开关或链接器加载新 `libapp.so`，立即自动重新扫描。
+- **配置文件 `stat()` 变更检测 + 稳态退避**：循环优先执行微秒级 `stat(hyperpatch.bin)` 检查 `(size, mtime)`，配置变化时 500 ms 内即时生效；进入稳态后仅每 40 个周期（20 秒）做一次低频 COW 护卫检查，其余周期完全不打开 `/proc/self/maps`；取消匹配失败时的无限 50 ms 狂刷循环。
+- **实机复测结果**：重新编译 16 KB 页对齐的 `libhyperchanger_folder.so` 并安装重启桌面后，已适配的 `Native Dock capability gate` 正常生效，**`hc-folder` 稳态 CPU 占用从 `44 ticks / 2s (22.0%)` 降至 `0 ticks / 5s (0.00%)`**。
+
+---
+
 ## 三、修改文件清单与混淆类对照表
 
-| Java 源码文件 | 对应发布包混淆类（smali） | 主要修改内容 |
+| 源码文件 | 对应发布包产物 / 混淆类 | 主要修改内容 |
 | :--- | :--- | :--- |
+| `app/src/main/cpp/targets/home/folder_spacing.cpp` | `lib/arm64-v8a/libhyperchanger_folder.so` | 新增运行期镜像指纹扫描去重、`hyperpatch.bin` 的 `stat()` 变更检测与稳态退避，消除 `hc-folder` 22% CPU 死循环 |
 | `hypermusiccover/Xp.java` | `h45` | 新增零异常反射 `tryGetObjectField` / `tryCallNoArgMethod` |
 | `hypermusiccover/ShadeLayer.java` | `n84` / `n00` / `zo1` | 壁纸原位反向位移裁切揭示、平直分界线轮廓插值、移除竖屏壁纸 84 px 模糊、接入 `IosShadeBackdropBlur` 清零底层模糊、收起动画 `0.999f` 防首帧解冻 |
 | `newnotificationcenter/IosNotificationCenterPresentation.java` | `kp1` | 移除前景 3 图层与标题栏动态模糊、缓存状态栏/景深查找、`visualAlpha()`、`prepareCollapse()`、景深尾段 20% 淡入、起拉首帧与 60 ms 通知栈材质同步 |
