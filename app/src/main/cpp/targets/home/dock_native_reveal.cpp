@@ -24,6 +24,7 @@ alignas(8) std::atomic<uint64_t> dock_reveal_icon_y{0}, dock_reveal_icon_alpha{0
 uintptr_t dock_reveal_clip_vtable = 0;
 uintptr_t dock_reveal_backdrop_vtable = 0;
 uint32_t dock_reveal_cid_delta = 0;
+uint32_t dock_reveal_render_field_delta = 0;
 void *dock_reveal_capture_original = nullptr;
 void dock_reveal_capture_entry();
 void *dock_reveal_icon_original = nullptr;
@@ -316,6 +317,7 @@ bool install(const Images &image) {
     dock_reveal_clip_vtable = image.engine + engine->clip_vtable;
     dock_reveal_backdrop_vtable = image.engine + engine->backdrop_vtable;
     dock_reveal_cid_delta = profile.cid_delta;
+    dock_reveal_render_field_delta = profile.render_field_delta;
     struct Target { uintptr_t address; void *replacement; void **continuation; };
     const std::array<Target, 6> targets{{
         {image.engine+engine->paint, reinterpret_cast<void *>(paint), reinterpret_cast<void **>(&original_paint)},
@@ -325,13 +327,13 @@ bool install(const Images &image) {
         {image.dart+profile.capture, reinterpret_cast<void *>(dock_reveal_capture_entry), &dock_reveal_capture_original},
         {image.dart+profile.icon, reinterpret_cast<void *>(dock_reveal_icon_entry), &dock_reveal_icon_original},
     }};
-    constexpr std::array<std::array<uint32_t, 4>, 6> entries{{
+    const std::array<std::array<uint32_t, 4>, 6> entries{{
         {0xd10103ff,0xa90257fe,0xa9034ff4,0xf9400029},
         {0xfc180fea,0x6d0123e9,0xa9027bfd,0xa9036ffc},
         {0xd10143ff,0xfd000be8,0xf9000ffe,0xa9025ff8},
         {0xd10243ff,0xa9047bfd,0xf9002bf9,0xa9065ff8},
         {0xa9bf79fd,0xaa0f03fd,0xd10121ef,0xaa0103e5},
-        {0xa9bf79fd,0xaa0f03fd,0xaa0203e0,0xb849b022},
+        {0xa9bf79fd,0xaa0f03fd,0xaa0203e0,profile.icon_field_load},
     }};
     for (size_t i = 0; i < targets.size(); ++i) {
         std::array<uint32_t, 4> live{};
@@ -355,18 +357,19 @@ bool install(const Images &image) {
     return true;
 }
 
+bool follow_requested() {
+    const std::string path = "/data/user/" + std::to_string(getuid()/100000)
+        + "/com.miui.home/files/hyperdock-reveal-duration";
+    std::ifstream config(path);
+    std::string mode, extra;
+    return bool(config >> mode) && mode == "follow" && !(config >> extra);
+}
+
 void *worker(void *) {
     bool attempted = false;
     uint64_t previous_id = 0, previous_end = 0;
     for (;;) {
-        const std::string path = "/data/user/" + std::to_string(getuid()/100000)
-            + "/com.miui.home/files/hyperdock-reveal-duration";
-        std::ifstream config(path);
-        std::string mode;
-        bool parsed = false;
-        parsed = bool(config >> mode) && mode == "follow";
-        std::string extra;
-        const bool active = parsed && !(config >> extra) && hc_native_features_allowed();
+        const bool active = follow_requested() && hc_native_features_allowed();
         if (enabled.exchange(active, std::memory_order_acq_rel) && !active) {
             const auto generation = epoch.fetch_add(1, std::memory_order_acq_rel) + 1;
             end_ns.store(0, std::memory_order_release);
@@ -388,6 +391,10 @@ void *worker(void *) {
     return nullptr;
 }
 } // namespace
+
+bool dock_reveal_allows_dock() {
+    return ready.load(std::memory_order_acquire) || !follow_requested();
+}
 
 void start_dock_native_reveal(int (*hook)(void *, void *, void **)) {
     if (!hook || started.exchange(true)) return;

@@ -170,6 +170,45 @@ inline constexpr auto kRelease8593AdvancedRadiusShape = [] {
     shape[25] = 0xf9433210;
     return shape;
 }();
+// This layout reads the same capability field as the support predicate and
+// branches past the null return to construct the Dock background.
+inline constexpr std::array<uint32_t, 12> kModernBackgroundShape{
+    0xb84d7001, 0x8b1c8021, 0x37200101, 0xf8497001, 0xf100103f, 0x540000aa,
+    0xf971c360, 0xaa1d03ef, 0xa8c179fd, 0xd65f03c0, 0x94000000, 0xf85f03a2,
+};
+// Verified against 8.01.02.9259. Match these bodies wherever they are placed
+// in the image, keeping the constructor field loads exact.
+inline constexpr auto kModernStrategyShape = [] {
+    auto shape = kStrategyShape;
+    for (size_t i : {48, 56, 80, 93}) shape[i] = 0x91439361;
+    for (size_t i : {49, 57, 94}) shape[i] = 0xf944c821;
+    for (size_t i : {62, 70}) shape[i] = 0x91439364;
+    for (size_t i : {63, 71}) shape[i] = 0xf944c884;
+    shape[81] = 0xf944cc21;
+    return shape;
+}();
+inline constexpr auto kModernGlassRadiusShape = [] {
+    auto shape = kGlassRadiusShape;
+    shape[8] = 0xf952b000;
+    shape[18] = 0x9143ab70;
+    shape[19] = 0xf9465610;
+    return shape;
+}();
+inline constexpr auto kModernAdvancedRadiusShape = [] {
+    auto shape = kAdvancedRadiusShape;
+    shape[14] = 0xf952b000;
+    shape[24] = 0x9143ab70;
+    shape[25] = 0xf9464610;
+    return shape;
+}();
+inline constexpr auto kModernPaddingShape = [] {
+    auto shape = kPaddingShape;
+    shape[4] = 0x91403771;
+    shape[5] = 0xfd458a20;
+    shape[7] = 0x91405771;
+    shape[8] = 0xfd458a20;
+    return shape;
+}();
 template<size_t N> inline bool matches(std::span<const uint32_t> code, const std::array<uint32_t,N> &shape) {
     if(code.size()<N) return false;
     for(size_t i=0;i<N;++i) {

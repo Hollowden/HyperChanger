@@ -10,6 +10,8 @@ struct Profile {
     std::string_view build;
     uintptr_t capture, icon, keyguard;
     uint32_t keyguard_call, cid_delta;
+    uint32_t render_field_delta = 0;
+    uint32_t icon_field_load = 0xb849b022;
 };
 // Application CIDs are verified from allocation stubs in each named image;
 // the VM native-field storage CID 140 never uses this adjustment.
@@ -18,6 +20,8 @@ inline constexpr std::array kProfiles{
         0x1025190, 0x1585d28, 0x6d387c, 0x941cb2ff, 1},
     Profile{"8593", "4f1bdaed7c97ae76de7d3ebc14f6a7b0",
         0x101e710, 0x15808a4, 0x6d3a3c, 0x941cb52b, 0},
+    Profile{"9259", "4f1bdaed2f6bb95156bde6440bdc2653",
+        0xf77284, 0x153d4e8, 0x6f3b5c, 0x941d3157, 0, 12, 0xb84a7022},
 };
 struct EngineProfile {
     std::string_view build;
@@ -28,7 +32,7 @@ struct EngineProfile {
 // engine. Vtable addresses include the two-word Itanium ABI prefix.
 inline constexpr std::array kEngineProfiles{
     // OS4.0.4.0.XPBCNXM: RVAs recovered from the engine's GNU mini symbols.
-    // Experimental until runtime ABI and unlock behavior are verified.
+    // Runtime entry guards and unlock following verified on Xiaomi 17 Pro Max.
     EngineProfile{"c014a14bb9ddab4431a887c98c6d56ce305b0573",
         0xb1f5fc, 0xb18440, 0xe1fc5c, 0xb240f4, 0xb22ee0, 0xb241f4, 0xb2344c,
         0x1180208, 0x117f418, 0x117f168},

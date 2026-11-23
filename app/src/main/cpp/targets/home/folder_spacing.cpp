@@ -25,6 +25,8 @@
 #include <unistd.h>
 #include <vector>
 
+bool dock_reveal_allows_dock();
+
 extern "C" {
 alignas(4) std::atomic<int32_t> folder_spacing_value{folder_spacing::kDisabledValue};
 void folder_spacing_return();
@@ -68,7 +70,7 @@ struct NativeGate {
 std::vector<NativeGate> native_gates;
 std::mutex observer_mutex;
 std::map<std::string, std::optional<std::pair<uint64_t, uint64_t>>> zip_cache;
-// 按运行期不可变代码镜像指纹缓存已扫描结果，避免未适配桌面版本上无限重复全量扫内存导致高功耗
+// 按运行期不可变代码镜像指纹缓存已扫描的特性位，防止部分未适配项（如新版桌面的 full_glass）每 5 秒重复扫几十 MB 内存
 std::map<uint64_t, uint32_t> scanned_effects_mask;
 std::map<uint64_t, bool> scanned_folder_gens;
 std::map<uint64_t, bool> scanned_multi_split_gens;
@@ -506,8 +508,11 @@ void install_full_glass(uintptr_t v7, const std::vector<nhk::ExecutableMapping> 
 }
 
 void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
-        const folder_spacing::MaterialSettings &settings,
+        const folder_spacing::MaterialSettings &requested,
         const folder_spacing::MultiSplitSettings &multi_split, unsigned tick) {
+    auto settings = requested;
+    if (settings.native_dock_enabled && settings.native_dock_style == 1)
+        settings.native_dock_enabled = dock_reveal_allows_dock();
     if (multi_split.enabled) resolve_multi_split(mappings);
     for (auto &gate : native_gates)
         if (source_at(mappings, gate.address) == gate.source)
@@ -544,7 +549,7 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
         const uint32_t want_mask = (want_glass ? 1u : 0u) | (want_full ? 2u : 0u)
             | (want_dock ? 4u : 0u) | (want_native ? 8u : 0u);
         if (want_mask == 0) continue;
-        // 同一不可变运行期镜像若已完成对应特性的完整特征码探测，不再重复做几十 MB 全量扫描
+        // 同一运行期不可变镜像若已完成对应特性位的完整特征码扫描，不再每 5 秒重复扫几十 MB 内存
         const uint64_t fp = generation_fingerprint(generation);
         uint32_t &done_mask = scanned_effects_mask[fp];
         const uint32_t pending = want_mask & ~done_mask;
@@ -559,6 +564,11 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
         std::vector<uintptr_t> release8583_strategies, release8583_glass_radii,
             release8583_advanced_radii, release8583_paddings;
         std::vector<uintptr_t> release8593_strategies, release8593_glass_radii, release8593_advanced_radii;
+        using namespace home_native_dock;
+        constexpr std::array no_label_shapes{kNoLabelLayoutShape, kNoLabelOffsetShape, kNoLabelPositionShape};
+        std::array<std::vector<std::pair<uintptr_t, uintptr_t>>, no_label_shapes.size()> no_label_calls;
+        std::vector<uintptr_t> modern_backgrounds, modern_strategies, modern_glass_radii,
+            modern_advanced_radii, modern_paddings;
         for (const auto &mapping : generation) {
             std::vector<uint32_t> code((mapping.end - mapping.begin) / 4);
             if (!nhk::safe_read(mapping.begin, std::as_writable_bytes(std::span(code)))) continue;
@@ -585,6 +595,16 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                 if (need_native && code[i] == home_native_dock::kRelease8583SupportShape[0]
                     && home_native_dock::matches(candidate,home_native_dock::kRelease8583SupportShape))
                     release8583_supports.push_back(mapping.begin+i*4);
+                if (need_native && code[i] == kModernBackgroundShape[0] && matches(candidate, kModernBackgroundShape))
+                    modern_backgrounds.push_back(mapping.begin + (i + 2) * 4);
+                if (need_native && (code[i] & 0xfc000000) == 0x94000000 && i + 1 < code.size()) {
+                    for (size_t role = 0; role < no_label_shapes.size(); ++role) {
+                        const auto &shape = no_label_shapes[role];
+                        if (code[i + 1] != shape[1] || !matches(candidate, shape)) continue;
+                        const uintptr_t call = mapping.begin + i * 4;
+                        no_label_calls[role].emplace_back(call + 4, call_target(call, code[i]));
+                    }
+                }
                 if (code[i] != 0xa9bf79fd) continue;
                 if ((need_glass || need_full) && home_effects::matches_glass(candidate)) glass.push_back(mapping.begin + i * 4);
                 if (need_dock && home_effects::matches_dock(candidate)) dock.push_back(mapping.begin + i * 4);
@@ -600,6 +620,10 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                     if(home_native_dock::matches(candidate,home_native_dock::kRelease8593StrategyShape)) release8593_strategies.push_back(mapping.begin+i*4);
                     if(home_native_dock::matches(candidate,home_native_dock::kRelease8593GlassRadiusShape)) release8593_glass_radii.push_back(mapping.begin+i*4);
                     if(home_native_dock::matches(candidate,home_native_dock::kRelease8593AdvancedRadiusShape)) release8593_advanced_radii.push_back(mapping.begin+i*4);
+                    if (matches(candidate, kModernStrategyShape)) modern_strategies.push_back(mapping.begin + i * 4);
+                    if (matches(candidate, kModernGlassRadiusShape)) modern_glass_radii.push_back(mapping.begin + i * 4);
+                    if (matches(candidate, kModernAdvancedRadiusShape)) modern_advanced_radii.push_back(mapping.begin + i * 4);
+                    if (matches(candidate, kModernPaddingShape)) modern_paddings.push_back(mapping.begin + i * 4);
                 }
             }
         }
@@ -792,10 +816,30 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
             add_gate(base + selected->position, 0x372000a0,
                 home_native_dock::kNoLabelFallthrough, "no-label-position", home_native_dock::kNoLabelPositionShape);
         }
+        // The three Dock label callers must share a predicate in this image.
+        // Unique layout and material signatures let compatible builds move
+        // functions without requiring a new set of release offsets.
+        const bool modern_layout = need_native && release8583_supports.size() == 1
+            && gates.size() == 1 && modern_backgrounds.size() == 1
+            && modern_strategies.size() == 1 && modern_glass_radii.size() == 1
+            && modern_advanced_radii.size() == 1 && modern_paddings.size() == 1
+            && std::ranges::all_of(no_label_calls, [](const auto &calls) { return calls.size() == 1; })
+            && no_label_calls[0][0].second == no_label_calls[1][0].second
+            && no_label_calls[0][0].second == no_label_calls[2][0].second
+            && source_at(generation, no_label_calls[0][0].second);
+        if (modern_layout) {
+            __android_log_print(ANDROID_LOG_INFO, kTag, "Native Dock layout matched by code signatures");
+            add_gate(release8583_supports[0] + 8, kRelease8583SupportShape[2], 0x14000001, "support");
+            add_gate(modern_backgrounds[0], kModernBackgroundShape[2], 0x14000008, "background");
+            constexpr std::array labels{"no-label-layout", "no-label-offset", "no-label-position"};
+            for (size_t role = 0; role < no_label_shapes.size(); ++role)
+                add_gate(no_label_calls[role][0].first, no_label_shapes[role][1], kNoLabelFallthrough,
+                    labels[role], no_label_shapes[role]);
+        }
         // 8583 and 8593 share the support bytes. Choose exactly one complete
         // layout; a shared predicate alone must never select another image's RVAs.
         bool release8593 = false;
-        if (need_native && release8583_supports.size() == 1) {
+        if (need_native && !modern_layout && release8583_supports.size() == 1) {
             struct Layout {
                 uintptr_t support, background, layout, offset, position;
                 const char *name;
@@ -867,7 +911,12 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                 home_native_dock::kNoLabelFallthrough, "no-label-position", home_native_dock::kNoLabelPositionShape);
         }
         const bool release8583 = release8583_supports.size() == 1;
-        if (release8593) {
+        if (modern_layout) {
+            strategies = std::move(modern_strategies);
+            glass_radii = std::move(modern_glass_radii);
+            advanced_radii = std::move(modern_advanced_radii);
+            paddings = std::move(modern_paddings);
+        } else if (release8593) {
             strategies = std::move(release8593_strategies);
             glass_radii = std::move(release8593_glass_radii);
             advanced_radii = std::move(release8593_advanced_radii);
@@ -878,10 +927,17 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
             advanced_radii = std::move(release8583_advanced_radii);
             paddings = std::move(release8583_paddings);
         }
-        const auto &strategy_shape = release8593 ? home_native_dock::kRelease8593StrategyShape : release8583 ? home_native_dock::kRelease8583StrategyShape : home_native_dock::kStrategyShape;
-        const auto &glass_shape = release8593 ? home_native_dock::kRelease8593GlassRadiusShape : release8583 ? home_native_dock::kRelease8583GlassRadiusShape : home_native_dock::kGlassRadiusShape;
-        const auto &advanced_shape = release8593 ? home_native_dock::kRelease8593AdvancedRadiusShape : release8583 ? home_native_dock::kRelease8583AdvancedRadiusShape : home_native_dock::kAdvancedRadiusShape;
-        const auto &padding_shape = release8583 ? home_native_dock::kRelease8583PaddingShape : home_native_dock::kPaddingShape;
+        const auto &strategy_shape = modern_layout ? kModernStrategyShape
+            : release8593 ? kRelease8593StrategyShape
+            : release8583 ? kRelease8583StrategyShape : kStrategyShape;
+        const auto &glass_shape = modern_layout ? kModernGlassRadiusShape
+            : release8593 ? kRelease8593GlassRadiusShape
+            : release8583 ? kRelease8583GlassRadiusShape : kGlassRadiusShape;
+        const auto &advanced_shape = modern_layout ? kModernAdvancedRadiusShape
+            : release8593 ? kRelease8593AdvancedRadiusShape
+            : release8583 ? kRelease8583AdvancedRadiusShape : kAdvancedRadiusShape;
+        const auto &padding_shape = modern_layout ? kModernPaddingShape
+            : release8583 ? kRelease8583PaddingShape : kPaddingShape;
         if (need_native && gates.size()==1 && strategies.size()==1 && glass_radii.size()==1 && advanced_radii.size()==1 && paddings.size()==1) {
             std::array<uint32_t,109> strategy{};
             std::array<uint32_t,14> gate{};
@@ -944,6 +1000,7 @@ void *worker(void *) {
     bool previous_glass = false;
     bool previous_dock = false;
     bool previous_native_dock = false;
+    bool previous_dock_allowed = dock_reveal_allows_dock();
     unsigned tick = 0;
     const std::string cfg_path = config_file_path();
     bool has_last_stat = false;
@@ -952,7 +1009,7 @@ void *worker(void *) {
     long last_mtime_nsec = 0;
     ConfigSnapshot snapshot{};
     while (true) {
-        // 先做微秒级 stat() 检测，仅在首次启动或配置文件变更时才重新读取与立刻扫描
+        // 微秒级 stat() 检测配置文件变更，同时监听解锁跟随状态 dock_reveal_allows_dock() 变化
         struct stat st{};
         const bool stat_ok = (::stat(cfg_path.c_str(), &st) == 0);
         const bool cfg_changed = (tick == 0)
@@ -967,6 +1024,10 @@ void *worker(void *) {
             last_mtime_nsec = stat_ok ? st.st_mtim.tv_nsec : 0;
             snapshot = read_config();
         }
+        const bool dock_allowed = dock_reveal_allows_dock();
+        const bool dock_allowed_changed = (dock_allowed != previous_dock_allowed);
+        previous_dock_allowed = dock_allowed;
+
         const auto &settings = snapshot.spacing;
         const auto &material = snapshot.material;
         if (material.enabled != previous_glass || material.dock_enabled != previous_dock
@@ -991,11 +1052,9 @@ void *worker(void *) {
         const bool any_active = settings.enabled || !slots.empty() || material.enabled || material.dock_enabled
             || material.native_dock_enabled || full_enabled || snapshot.multi_split.enabled
             || !effect_slots.empty() || !native_gates.empty();
-        // 稳态下避免每 500ms 反复打开并解析数千行 /proc/self/maps：
-        // - 配置变化或冷启动前 20 次（约 2 秒内）立即同步；
-        // - 冷启动后 20~40 次每 2 次同步一次以捕获异步加载的 libapp.so；
-        // - 进入稳态后每 40 次（约 20 秒）做一次低频 COW 护卫与新镜像检查，其余周期直接休眠。
-        const bool should_poll_maps = any_active && (cfg_changed
+        // 配置变更、解锁跟随状态切换、冷启动前 20 次立即同步；稳态每 40 次（约 20 秒）做一次低频 COW 护卫，
+        // 其余周期直接休眠，避免每秒重复解析数千行 /proc/self/maps。
+        const bool should_poll_maps = any_active && (cfg_changed || dock_allowed_changed
             || tick < 20
             || (tick < 40 && tick % 2 == 0)
             || (tick % 40 == 0));
@@ -1011,11 +1070,13 @@ void *worker(void *) {
             if (settings.enabled && slots.empty() && tick == 40)
                 __android_log_print(ANDROID_LOG_WARN, kTag,
                     "Folder resolver pending: mappings=%zu value=%d", mappings.size(), settings.value);
-            update_effects(mappings, material, snapshot.multi_split, cfg_changed ? 0u : tick);
+            update_effects(mappings, material, snapshot.multi_split,
+                (cfg_changed || dock_allowed_changed) ? 0u : tick);
         }
         ++tick;
-        // 冷启动前 20 次使用 100ms 快速捕捉，之后恒定 500ms（杜绝匹配失败时 50ms 死循环空转）
-        usleep(tick < 20 ? 100000 : 500000);
+        // 锁屏等待解锁切换时用 50ms 纯原子读保证解锁跟随零延迟（不读 maps）；稳态恒定 500ms
+        usleep((tick < 20 || (material.native_dock_enabled && material.native_dock_style == 1 && !dock_allowed))
+            ? 50000 : 500000);
     }
     return nullptr;
 }
