@@ -116,18 +116,13 @@ final class IosNotificationShortcutHost extends FrameLayout {
         }
         IosNotificationShortcutHost current = overlay;
         if (current == null) return;
-        // Keep shortcut buttons on the same visual curve and blur envelope as the hosted
-        // clock and notification stack. The raw expansion fraction is intentionally retained
-        // for lifecycle/interaction gating, while this smooth value drives presentation only.
-        float visual = progress * progress * (3f - 2f * progress);
+        // 底部快捷按钮与前景组件同步透明度曲线，并移除每帧动态 RenderEffect 高斯模糊以稳定 120 FPS
+        float baseAlpha = IosNotificationCenterPresentation.visualAlpha();
+        float visual = baseAlpha * baseAlpha * (3f - 2f * baseAlpha);
         if (current.getAlpha() != visual) current.setAlpha(visual);
-        int blur = Math.round(28f * panel.getResources().getDisplayMetrics().density
-                * (1f - visual));
-        blur = (blur + 1) / 2 * 2;
-        if (blur != current.lastBlur) {
-            current.setRenderEffect(blur == 0 ? null
-                    : RenderEffect.createBlurEffect(blur, blur, Shader.TileMode.CLAMP));
-            current.lastBlur = blur;
+        if (current.lastBlur != 0) {
+            current.setRenderEffect(null);
+            current.lastBlur = 0;
         }
         float x = sheet == null ? 0f : sheet.getTranslationX();
         float y = sheet == null ? 0f : sheet.getTranslationY();

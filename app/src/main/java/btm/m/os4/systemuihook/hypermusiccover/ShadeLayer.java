@@ -96,6 +96,19 @@ public final class ShadeLayer {
         return sIosEnabled;
     }
 
+    /** 当前是否开启“分阶段壁纸渐显”；false 表示壁纸原位揭示模式（iOS 18 风格）。 */
+    public static boolean iosStagedExpansion() {
+        return sIosStagedExpansion;
+    }
+
+    public static float iosProgress() {
+        return IOS.progress;
+    }
+
+    public static float iosSwitchFraction() {
+        return IOS.switchFraction;
+    }
+
     public static boolean keyguardLocked() {
         return Main.keyguardLocked();
     }
@@ -153,7 +166,14 @@ public final class ShadeLayer {
             applyIosProgress();
             return;
         }
-        android.animation.ValueAnimator settle = android.animation.ValueAnimator.ofFloat(IOS.progress, target);
+        float startProgress = IOS.progress;
+        // 清除通知等自动收起动画（1.0f -> <1.0f）启动前提前准备收起冻结态，并将起点微调为 0.999f，
+        // 防止动画首帧写入 1.0f 触发退出状态机清零导致首帧卡顿。
+        if (startProgress >= 1f && target < 1f) {
+            IosNotificationCenterPresentation.prepareCollapse();
+            startProgress = 0.999f;
+        }
+        android.animation.ValueAnimator settle = android.animation.ValueAnimator.ofFloat(startProgress, target);
         settle.setDuration(Math.max(180L, (long) (380L * Math.abs(IOS.progress - target))));
         // Start moving immediately when the finger releases, without an ease-in pause.
         settle.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
@@ -270,14 +290,19 @@ public final class ShadeLayer {
         syncShown();
         boolean showWallpaper = iosWallpaperEnabled();
         boolean staged = sIosStagedExpansion;
-        IosShadeBackdropBlur.update(sRoot, staged && !IOS.switching, IOS.progress * IOS.switchFraction);
+        // 壁纸原位揭示（!staged）模式下同样启用 IosShadeBackdropBlur，将底层 HyperOS 系统窗口模糊压制为 0，
+        // 使下拉与上滑底层桌面保持 100% 清晰对称；水平切换至控制中心（IOS.switching）时自动释放还原。
+        IosShadeBackdropBlur.update(sRoot, !IOS.switching, IOS.progress * IOS.switchFraction);
         IosNotificationCenterPresentation.setWallpaperEnabled(showWallpaper);
         float visual = IOS.progress * IOS.switchFraction;
-        // Both effects are driven by the finger/native switch animator, without another spring.
-        // Position reveals the staged glass. Fading that same sheet by drag distance
-        // made its entire optical band almost transparent during most of the pull.
-        float opacityProgress = staged ? IOS.switchFraction : visual;
-        float opacity = opacityProgress * opacityProgress * (3f - 2f * opacityProgress);
+        // 分阶段模式维持原 smoothstep 渐显；壁纸原位揭示模式在顶部前 5% 极速柔顺淡入，随后保持 100% 实心画卷。
+        float opacity;
+        if (staged) {
+            float opacityProgress = IOS.switchFraction;
+            opacity = opacityProgress * opacityProgress * (3f - 2f * opacityProgress);
+        } else {
+            opacity = IosNotificationCenterPresentation.visualAlpha();
+        }
         sFrame.setAlpha(opacity);
         sFrame.setVisibility(View.VISIBLE);
         sEffectOn = showWallpaper;
@@ -298,12 +323,15 @@ public final class ShadeLayer {
                     landscape, sRoot, sFrame.getTranslationY(), cornerRadius());
         }
         float density = sFrame.getResources().getDisplayMetrics().density;
+        // 壁纸原位揭示（竖屏 !staged）彻底移除 84px 动态高斯模糊，让壁纸从第一像素起即高清锐利且零 GPU 离屏负担
         int blur = landscape
                 ? Math.round((22f + 14f * (1f - visual)) * density)
-                : Math.round(28f * density * (1f - visual));
+                : 0;
         blur = (blur + 1) / 2 * 2;
         if (!staged && sWp != null && sLastWpBlur != blur) {
-            sWp.setRenderEffect(btm.m.os4.systemuihook.newnotificationcenter.IosShadeBlurEffects.blur(blur));
+            sWp.setRenderEffect(blur == 0
+                    ? null
+                    : btm.m.os4.systemuihook.newnotificationcenter.IosShadeBlurEffects.blur(blur));
             sLastWpBlur = blur;
         }
         if (staged) sLastWpBlur = -1;
@@ -1353,15 +1381,16 @@ public final class ShadeLayer {
 
         sCurtainFraction = cf;
         if (sIosEnabled) {
-            // Translate one complete sheet with the platform expansion. Its bottom edge
-            // stays at the finger while the wallpaper retains its full-screen geometry.
+            // 幕布容器随进度下拉；在壁纸原位揭示（!sIosStagedExpansion）模式下，壁纸反向抵消幕布位移（-offset），
+            // 实现壁纸 A 固定在屏幕原位从上至下被水平分界线一点点裁切揭示（“吃掉”底层桌面 B）的 iOS 18 视觉效果。
             float offset = -maxH * (1f - cf);
             if (frame.getTranslationY() != offset) frame.setTranslationY(offset);
-            if (sCurtainLine != maxH) {
+            if (sCurtainLine != maxH || !sIosStagedExpansion) {
                 sCurtainLine = maxH;
                 frame.invalidateOutline();
             }
-            if (sWp != null && sWp.getTranslationY() != 0f) sWp.setTranslationY(0f);
+            float wpOffset = sIosStagedExpansion ? 0f : -offset;
+            if (sWp != null && sWp.getTranslationY() != wpOffset) sWp.setTranslationY(wpOffset);
             return;
         }
         final int line = (int) (maxH * cf);
@@ -1418,9 +1447,19 @@ public final class ShadeLayer {
                         outline.setEmpty();
                         return;
                     }
-                    // Clamped: a radius over half the shape is no longer a rounded rectangle, and
-                    // a curtain one frame tall would otherwise be given one it cannot hold.
-                    final float r = Math.min(cornerRadius(),
+                    // 壁纸原位揭示模式下，下拉中途使用贴满屏幕宽度的平直水平分界线（圆角=0），
+                    // 贴近屏幕底部（>= 96%）时平滑插值恢复屏幕物理圆角，复刻 iOS 18 分界线观感。
+                    float targetRadius = cornerRadius();
+                    if (sIosEnabled && !sIosStagedExpansion) {
+                        float cf = sCurtainFraction;
+                        if (cf < 0.96f) {
+                            targetRadius = 0f;
+                        } else {
+                            float t = Math.min(1f, (cf - 0.96f) / 0.04f);
+                            targetRadius = targetRadius * t;
+                        }
+                    }
+                    final float r = Math.min(targetRadius,
                             Math.min(bottom, view.getWidth()) / 2f);
                     outline.setRoundRect(0, 0, view.getWidth(), (int) bottom, r);
                 }

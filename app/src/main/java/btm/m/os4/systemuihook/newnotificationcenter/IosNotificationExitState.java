@@ -16,6 +16,8 @@ import btm.m.os4.systemuihook.hypermusiccover.Xp;
 final class IosNotificationExitState {
     private static final WeakHashMap<View, Card> DRAWN = new WeakHashMap<>();
     private static boolean holding;
+    /** 仅记录本轮手势是否已真正完全展开过，防止下拉中途反向回拉误冻住卡片导致拉满闪现。 */
+    private static boolean wasExpanded;
 
     private IosNotificationExitState() {}
 
@@ -25,15 +27,23 @@ final class IosNotificationExitState {
         if (current <= 0f || previous <= 0f) {
             clear();
         } else if (current >= 1f) {
-            // Resume native row updates only at the resting endpoint. Reversing a drag
-            // midway through the exit must not briefly expose the collapsed native layout.
+            // 仅在真正展开到静止态后标记 wasExpanded，并恢复原生行更新
+            wasExpanded = true;
             holding = false;
-        } else if (current < previous && !DRAWN.isEmpty()) {
+        } else if (current < previous && wasExpanded && !DRAWN.isEmpty()) {
+            holding = true;
+        }
+    }
+
+    /** 清除通知等非手势触发的系统自动收起前，提前冻结已绘制卡片避免首帧塌缩卡顿。 */
+    static void prepareCollapse() {
+        if (!DRAWN.isEmpty()) {
             holding = true;
         }
     }
 
     static void clear() {
+        wasExpanded = false;
         holding = false;
         DRAWN.clear();
     }

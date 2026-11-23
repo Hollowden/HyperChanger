@@ -32,6 +32,8 @@ public final class IosShadeMaterial {
     private static final WeakHashMap<View, Boolean> CONTAIN_REQUESTS = new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> MEDIA = new WeakHashMap<>();
     private static final WeakHashMap<View, Boolean> GROUP_CONTROLS = new WeakHashMap<>();
+    /** 记录已扫描过通知组控制字段的对象，避免每次 onGlobalLayout 重复递归反射扫描。 */
+    private static final WeakHashMap<Object, Boolean> SCANNED_OWNERS = new WeakHashMap<>();
     private static final WeakHashMap<View, int[]> GLASS_REQUESTS = new WeakHashMap<>();
     private static final WeakHashMap<View, int[]> SAVED_GLASS = new WeakHashMap<>();
     private static Method glassRadius;
@@ -44,8 +46,14 @@ public final class IosShadeMaterial {
     private static boolean clockRegistered;
     private static ViewTreeObserver observer;
     private static boolean loggedFailure;
+    private static long lastLayoutScanUptime;
     private static final ViewTreeObserver.OnGlobalLayoutListener LAYOUT = () -> {
-        if (active && root != null) scan(root);
+        if (!active || root == null) return;
+        // 仅保留 60ms 轻量防抖：既避免单帧内多次布局触发全树扫描，又不在下拉过程屏蔽通知材质捕获
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastLayoutScanUptime < 60L) return;
+        lastLayoutScanUptime = now;
+        scan(root);
     };
 
     public static void install() {
@@ -279,16 +287,23 @@ public final class IosShadeMaterial {
 
     private static void captureGroupFields(Object owner, int depth) {
         if (owner == null || depth < 0) return;
+        // 已扫描过的对象直接跳过，并用零异常 tryGetObjectField 彻底消除 12 字段枚举产生的海量异常栈
+        if (SCANNED_OWNERS.containsKey(owner)) return;
+        SCANNED_OWNERS.put(owner, Boolean.TRUE);
         for (String field : GROUP_CONTROL_FIELDS) {
-            try {
-                Object candidate = Xp.getObjectField(owner, field);
-                if (candidate instanceof View) {
-                    registerGroupControl((View) candidate);
-                } else if (candidate != null && depth > 0) {
-                    captureGroupFields(candidate, depth - 1);
-                }
-            } catch (Throwable ignored) {
+            Object candidate = Xp.tryGetObjectField(owner, field);
+            if (candidate instanceof View) {
+                registerGroupControl((View) candidate);
+            } else if (candidate != null && depth > 0) {
+                captureGroupFields(candidate, depth - 1);
             }
+        }
+    }
+
+    /** 供下拉起拉首帧与拖动期间局部扫描通知栈，确保通知卡片第一时间采样通知壁纸而非底层桌面。 */
+    static void scanSubtree(View view) {
+        if (active && view != null) {
+            scan(view);
         }
     }
 

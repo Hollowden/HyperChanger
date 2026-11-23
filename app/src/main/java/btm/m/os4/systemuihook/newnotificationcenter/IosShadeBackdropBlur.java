@@ -98,7 +98,10 @@ public final class IosShadeBackdropBlur {
             requestedRadius = ((Number) getter.invoke(root)).intValue();
             ownedRoot = root;
             gestureAmount = p * p * (3f - 2f * p);
-            amount = .3f * gestureAmount;
+            // 壁纸原位揭示（!iosStagedExpansion）模式下始终将底层窗口模糊系数置为 0，
+            // 确保下拉与上滑底层桌面均 100% 清晰对称，释放时自动还原系统原生模糊。
+            amount = btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosStagedExpansion()
+                    ? .3f * gestureAmount : 0f;
             write(root, scaledRadius());
             replaySurface(root, true);
         } catch (Throwable ignored) { release(); }
@@ -114,8 +117,14 @@ public final class IosShadeBackdropBlur {
     }
 
     private static void updateAmount() {
-        float capped = .3f * gestureAmount;
-        float next = capped + (1f - capped) * wallpaperAlpha;
+        float next;
+        if (!btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosStagedExpansion()) {
+            // 壁纸原位揭示模式下恒定保持底层窗口模糊为 0
+            next = 0f;
+        } else {
+            float capped = .3f * gestureAmount;
+            next = capped + (1f - capped) * wallpaperAlpha;
+        }
         if (amount == next) return;
         amount = next;
         try {

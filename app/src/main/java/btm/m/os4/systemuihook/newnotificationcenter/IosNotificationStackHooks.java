@@ -50,41 +50,36 @@ final class IosNotificationStackHooks {
      */
     static boolean isFocusOrMediaNotification(View view) {
         if (view == null) return false;
-        try {
-            Object injector = Xp.callMethod(view, "getInjector");
+        // 复用 injector 并全程使用零异常反射探测，彻底消除热路径海量 IllegalArgumentException 栈构造开销
+        Object injector = Xp.tryCallNoArgMethod(view, "getInjector");
+        if (injector != null) {
             if (hasType(injector, ".MiuiMediaHeaderViewInjector")) return true;
-            if (Boolean.TRUE.equals(Xp.callMethod(injector, "isFocusNotification"))) return true;
-        } catch (Throwable ignored) {}
+            if (Boolean.TRUE.equals(Xp.tryCallNoArgMethod(injector, "isFocusNotification"))) return true;
+        }
         if (hasType(view, ".MiuiMediaHeaderView")) return true;
         // Use the legacy entry as well: refactored rows can lack getEntry().
-        Object entry = null;
-        try {
-            entry = Xp.callMethod(Xp.callMethod(view, "getInjector"), "getLegacyEntry");
-        } catch (Throwable ignored) {}
+        Object entry = injector != null ? Xp.tryCallNoArgMethod(injector, "getLegacyEntry") : null;
         if (entry == null) {
-            try { entry = Xp.callMethod(view, "getEntry"); } catch (Throwable ignored) {}
+            entry = Xp.tryCallNoArgMethod(view, "getEntry");
         }
         Object sbn = null;
         if (entry != null) {
-            try { sbn = Xp.getObjectField(entry, "mSbn"); } catch (Throwable ignored) {}
+            sbn = Xp.tryGetObjectField(entry, "mSbn");
             if (sbn == null) {
-                try { sbn = Xp.callMethod(entry, "getSbn"); } catch (Throwable ignored) {}
+                sbn = Xp.tryCallNoArgMethod(entry, "getSbn");
             }
         }
         if (sbn == null) return false;
         // Keep these checks independent so a missing vendor field cannot skip media detection.
-        try {
-            if (Boolean.TRUE.equals(Xp.getObjectField(sbn, "mIsFocusNotification"))) return true;
-        } catch (Throwable ignored) {}
-        try {
-            if (Boolean.TRUE.equals(Xp.getObjectField(sbn, "isMediaNotification"))) return true;
-        } catch (Throwable ignored) {}
-        try {
-            android.app.Notification notification = (android.app.Notification) Xp.callMethod(sbn, "getNotification");
-            return Boolean.TRUE.equals(Xp.callMethod(notification, "isMediaNotification"))
-                    || notification.extras.containsKey("android.mediaSession")
-                    || android.app.Notification.CATEGORY_TRANSPORT.equals(notification.category);
-        } catch (Throwable ignored) {}
+        if (Boolean.TRUE.equals(Xp.tryGetObjectField(sbn, "mIsFocusNotification"))) return true;
+        if (Boolean.TRUE.equals(Xp.tryGetObjectField(sbn, "isMediaNotification"))) return true;
+        Object rawNotification = Xp.tryCallNoArgMethod(sbn, "getNotification");
+        if (rawNotification instanceof android.app.Notification) {
+            android.app.Notification notification = (android.app.Notification) rawNotification;
+            if (Boolean.TRUE.equals(Xp.tryCallNoArgMethod(notification, "isMediaNotification"))) return true;
+            if (notification.extras != null && notification.extras.containsKey("android.mediaSession")) return true;
+            return android.app.Notification.CATEGORY_TRANSPORT.equals(notification.category);
+        }
         return false;
     }
 

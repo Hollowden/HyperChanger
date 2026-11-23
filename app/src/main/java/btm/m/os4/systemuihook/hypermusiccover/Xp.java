@@ -181,6 +181,47 @@ public final class Xp {
         }
     }
 
+    /**
+     * 零异常反射读取字段：查不到字段或读取失败时直接返回 null，不抛出 IllegalArgumentException。
+     * 用于 SystemUI 渲染/布局热路径，避免每帧构造海量异常堆栈占用主线程 CPU。
+     */
+    public static Object tryGetObjectField(Object obj, String name) {
+        if (obj == null || name == null) return null;
+        for (Class<?> c = obj.getClass(); c != null; c = c.getSuperclass()) {
+            Field f = DECLARED_FIELDS.get(c).get(name);
+            if (f != null) {
+                try {
+                    return f.get(obj);
+                } catch (Throwable ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 零异常无参反射方法调用：查不到方法或调用失败时直接返回 null，不抛出异常。
+     * 用于通知行特征探测等高频回调，消除 ART fillInStackTrace 开销。
+     */
+    public static Object tryCallNoArgMethod(Object obj, String name) {
+        if (obj == null || name == null) return null;
+        for (Class<?> c = obj.getClass(); c != null; c = c.getSuperclass()) {
+            Overload[] cands = DECLARED_METHODS.get(c).get(name);
+            if (cands == null) continue;
+            for (Overload o : cands) {
+                if (o.params.length == 0) {
+                    try {
+                        return o.method.invoke(obj);
+                    } catch (Throwable ignored) {
+                        return null;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     public static void setObjectField(Object obj, String name, Object value) {
         try {
             field(obj, name).set(obj, value);
