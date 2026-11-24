@@ -100,6 +100,8 @@ public final class IosNotificationCenterPresentation {
     };
     private static boolean clearButtonScanNeeded = true;
     private static long lastClearButtonScanUptime;
+    /** 记录上次局部扫描通知栈材质的时间戳，用于起拉首帧与拖动期 60ms 同步。 */
+    private static long lastNotifMaterialScanUptime;
     private static Drawable lastDepthDrawable;
     private static ViewTreeObserver observer;
     private static ViewTreeObserver clearObserver;
@@ -224,13 +226,54 @@ public final class IosNotificationCenterPresentation {
         // relying on create() having run again. Without this, its containment flag remains
         // native and the MiGlass sampler sees the notification panel's contents.
         if (clock != null) IosShadeMaterial.registerClock(clock);
-        host.setAlpha(progress);
-        if (status != null) status.setAlpha(progress * progress * (3f - 2f * progress));
+        float fgAlpha = visualAlpha();
+        host.setAlpha(fgAlpha);
+        if (status != null) status.setAlpha(fgAlpha);
         sync();
         if (!IosNotificationExitState.isHolding()
                 && (layoutProgress != previousLayout || wasHoldingRows)) {
             requestStackUpdate(stack);
         }
+        // 起拉首帧及拖动期间按 60ms 轻量间隔扫描通知栈（仅扫 stack 子树），
+        // 避免通知卡片在下拉中途错误采样底层桌面光并在拉满瞬间跳变。
+        if (stack != null) {
+            long now = SystemClock.uptimeMillis();
+            if (previousProgress <= 0f || now - lastNotifMaterialScanUptime >= 60L) {
+                lastNotifMaterialScanUptime = now;
+                IosShadeMaterial.scanSubtree(stack);
+            }
+        }
+    }
+
+    /**
+     * 清除通知等非手势触发的系统自动收起前，提前清理入场状态并冻结已绘制卡片，
+     * 防止系统动画首帧引发原生卡片塌缩和掉帧卡顿。
+     */
+    public static void prepareCollapse() {
+        if (!btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosNotificationPanelIntercepting()
+                || progress <= 0f
+                || !IosNotificationExitState.hasExpanded()) {
+            return;
+        }
+        IosNotificationEntryState.clear();
+        IosNotificationExitState.prepareCollapse();
+    }
+
+    /**
+     * 统一的前景与幕布透明度曲线：
+     * - 分阶段模式沿用原版 progress；
+     * - 壁纸原位揭示模式下在顶边前 5% 极速柔顺淡入，随后保持 100% 实心实体画卷，
+     *   水平切控制中心时再随 switchFraction 丝滑淡出。
+     */
+    public static float visualAlpha() {
+        if (btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosStagedExpansion()) {
+            return progress;
+        }
+        float p = btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosProgress();
+        float sw = btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosSwitchFraction();
+        if (p <= 0f || sw <= 0f) return 0f;
+        float topFade = Math.min(1f, p / 0.05f);
+        return topFade * Math.min(1f, sw);
     }
 
     public static void release() {
@@ -295,7 +338,15 @@ public final class IosNotificationCenterPresentation {
             revealedDepth = depth;
             lastDepthRevealBlur = -1;
         }
-        if (depth.getAlpha() != wallpaperReveal) depth.setAlpha(wallpaperReveal);
+        float targetAlpha = wallpaperReveal;
+        // 壁纸原位揭示模式下，景深压字人像层随 host 下滑在最后 20%（0.80 -> 1.0）时钟落位时丝滑淡入，
+        // 避免下拉中途与固定在原位的壁纸主体发生视觉错位。
+        if (!btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosStagedExpansion()) {
+            float p = btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosProgress();
+            float depthFade = p <= 0.80f ? 0f : Math.min(1f, (p - 0.80f) / 0.20f);
+            targetAlpha *= depthFade;
+        }
+        if (depth.getAlpha() != targetAlpha) depth.setAlpha(targetAlpha);
         if (lastDepthRevealBlur != wallpaperRevealBlur) {
             depth.setRenderEffect(IosShadeBlurEffects.blur(wallpaperRevealBlur));
             lastDepthRevealBlur = wallpaperRevealBlur;
@@ -763,28 +814,19 @@ public final class IosNotificationCenterPresentation {
         // lockscreen-only region. This hosted copy has no depth foreground layer, so that state
         // would make the minute half disappear until the next clock rebuild. Re-assert the
         // minute subtree after every layout/pre-draw pass while the iOS clock owns the surface.
-        // Ease the clock from a soft, blurred entrance to a crisp resting state. Using the
-        // same smooth-step curve as the sheet alpha avoids a sharp focus jump near the end of
-        // an upward swipe when native expansion reports uneven frame deltas.
-        float clockVisual = progress * progress * (3f - 2f * progress);
-        int blur = Math.round(28f * panel.getResources().getDisplayMetrics().density
-                * (1f - clockVisual));
-        // RenderEffect changes rebuild a RenderNode. Two-pixel buckets avoid doing that for
-        // subpixel finger deltas while keeping the transition visually smooth.
-        blur = (blur + 1) / 2 * 2;
-        if (blur != lastBlur) {
-            host.setRenderEffect(blur == 0 ? null : IosShadeBlurEffects.blur(blur));
-            lastBlur = blur;
+        // 移除下拉期间前景图层（时钟容器、通知列表、状态栏镜像）的每帧动态 RenderEffect 高斯模糊，
+        // 避免每帧触发 Skia 离屏大半径滤波导致 GPU 单帧耗时暴涨至 15-20ms。
+        if (lastBlur != 0) {
+            host.setRenderEffect(null);
+            lastBlur = 0;
         }
-        if (stack != null && blur != lastStackBlur) {
-            stack.setRenderEffect(blur == 0 ? null : IosShadeBlurEffects.blur(blur));
-            lastStackBlur = blur;
+        if (stack != null && lastStackBlur != 0) {
+            stack.setRenderEffect(null);
+            lastStackBlur = 0;
         }
-        int statusBlur = Math.round(12f * panel.getResources().getDisplayMetrics().density * (1f - progress));
-        statusBlur = (statusBlur + 1) / 2 * 2;
-        if (status != null && statusBlur != lastStatusBlur) {
-            status.setRenderEffect(statusBlur == 0 ? null : IosShadeBlurEffects.blur(statusBlur));
-            lastStatusBlur = statusBlur;
+        if (status != null && lastStatusBlur != 0) {
+            status.setRenderEffect(null);
+            lastStatusBlur = 0;
         }
         syncNotificationHeader();
         syncNotifications();
@@ -872,6 +914,8 @@ public final class IosNotificationCenterPresentation {
             lastDepthDrawable = null;
             return;
         }
+        // 拖动期间若已缓存景深图，跳过每帧全树 findViewById("deducted_image_view") 遍历
+        if (progress < 1f && lastDepthDrawable != null) return;
         View source = byId(window, "deducted_image_view");
         if (!(source instanceof ImageView)) return;
         Drawable drawable = ((ImageView) source).getDrawable();
@@ -885,6 +929,12 @@ public final class IosNotificationCenterPresentation {
     }
 
     private static void syncStatus() {
+        // 状态栏镜像源视图已附加且尺寸有效时直接复用，避免每帧全树 findViewById("keyguard_status_bar")
+        if (status != null && status.source != null
+                && status.source.isAttachedToWindow()
+                && status.source.getWidth() > 0 && status.source.getHeight() > 0) {
+            return;
+        }
         View source = byId(window, "keyguard_status_bar");
         if (source != null && source != status && source.getWidth() > 0 && source.getHeight() > 0) {
             if (status.source != source) {
@@ -1070,13 +1120,12 @@ public final class IosNotificationCenterPresentation {
         }
         float y = firstTop - dp(60 + notificationHeaderGapDp);
         notificationHeaderBar.setTranslationY(y);
-        animateNotificationHeader(true, progress * progress * (3f - 2f * progress));
-        float visual = progress * progress * (3f - 2f * progress);
-        int blur = Math.round(28f * panel.getResources().getDisplayMetrics().density * (1f - visual));
-        blur = (blur + 1) / 2 * 2;
-        if (blur != lastHeaderBlur) {
-            notificationHeaderBar.setRenderEffect(IosShadeBlurEffects.blur(blur));
-            lastHeaderBlur = blur;
+        float fgAlpha = visualAlpha();
+        animateNotificationHeader(true, fgAlpha * fgAlpha * (3f - 2f * fgAlpha));
+        // 移除通知标题栏的每帧动态 RenderEffect 高斯模糊
+        if (lastHeaderBlur != 0) {
+            notificationHeaderBar.setRenderEffect(null);
+            lastHeaderBlur = 0;
         }
     }
 

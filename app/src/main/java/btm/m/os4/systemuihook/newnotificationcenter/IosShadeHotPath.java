@@ -90,7 +90,7 @@ public final class IosShadeHotPath implements View.OnTouchListener {
                     lastClear=now; feedback(true); Log.i(TAG,"clear empty: no eligible notifications"); return;
                 }
                 Method method=live.getClass().getMethod("clearNotifications",int.class,boolean.class,boolean.class);
-                // 清除可清理通知后自动收起通知中心（保持小米原生体验）。
+                // 清除可清理通知后自动收起通知中心（配合 prepareCollapse 防收起首帧闪烁）。
                 method.invoke(live,0,true,true);
                 lastClear=now; feedback(false); Log.i(TAG,"clear dispatched once to live stack"); return;
             } catch(java.lang.reflect.InvocationTargetException error) {

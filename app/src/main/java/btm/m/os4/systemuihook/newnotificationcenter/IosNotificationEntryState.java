@@ -28,7 +28,9 @@ final class IosNotificationEntryState {
 
     static void updateProgress(float previous, float current) {
         if (current < 1f) restingFrameDrawn = false;
-        if (current <= 0f || current < previous) {
+        // 仅在完全关闭，或已真正展开过后再上滑收起时才退出入场置位态；
+        // 下拉中途上下反复滑动期间保持 entering = true，防止原生 ViewState 动画介入造成卡顿与末尾闪现。
+        if (current <= 0f || (current < previous && IosNotificationExitState.hasExpanded())) {
             clear();
         } else if (previous <= 0f) {
             entering = true;

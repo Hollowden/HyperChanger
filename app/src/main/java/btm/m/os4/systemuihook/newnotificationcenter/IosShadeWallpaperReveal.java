@@ -88,10 +88,16 @@ public final class IosShadeWallpaperReveal {
         IosShadeBackdropBlur.setWallpaperReveal(root, alpha);
         if (wallpaper.getAlpha() != alpha) wallpaper.setAlpha(alpha);
         float density = wallpaper.getResources().getDisplayMetrics().density;
-        int blur = Math.round((landscape ? 22f + 14f * (1f - alpha) : 28f * (1f - alpha)) * density);
-        blur = (blur + 1) / 2 * 2;
+        // 降低分阶段壁纸与景深层峰值模糊（28dp -> 10dp），两端极值直接清零，量化步长由 2px 放宽至 4px，减轻 GPU 离屏压力
+        int blur;
+        if (!landscape && (alpha <= 0.02f || alpha >= 0.94f)) {
+            blur = 0;
+        } else {
+            blur = Math.round((landscape ? 22f + 14f * (1f - alpha) : 10f * (1f - alpha)) * density);
+            blur = ((blur + 2) / 4) * 4;
+        }
         if (lastBlur != blur) {
-            wallpaper.setRenderEffect(IosShadeBlurEffects.blur(blur));
+            wallpaper.setRenderEffect(blur == 0 ? null : IosShadeBlurEffects.blur(blur));
             lastBlur = blur;
         }
         // The existing foreground remains above the clock, with its original geometry.

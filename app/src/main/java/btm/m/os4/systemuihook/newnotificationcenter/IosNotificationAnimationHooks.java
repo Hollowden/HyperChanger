@@ -93,19 +93,30 @@ final class IosNotificationAnimationHooks {
                     "com.android.systemui.shade.MiuiNotificationPanelAnimControllerImpl", loader);
             Xp.hookAll(controller, "startPanelExpandAnimation$default", chain -> {
                 Object[] args = chain.getArgs().toArray();
-                if (args.length == 5 && handlesPanel(args[0])) {
-                    args[3] = false;
-                    return chain.proceed(args);
+                if (args.length == 5) {
+                    // 清除通知触发自动收起时（appearance == false）提前冻结卡片，防止系统收起前先跑原生塌缩
+                    if (Boolean.FALSE.equals(args[1])) {
+                        IosNotificationCenterPresentation.prepareCollapse();
+                    }
+                    if (handlesPanel(args[0])) {
+                        args[3] = false;
+                        return chain.proceed(args);
+                    }
                 }
                 return chain.proceed();
             });
             Xp.hookAll(controller, "startPanelVisibleAnimation", chain -> {
                 Object[] args = chain.getArgs().toArray();
-                if (args.length == 3 && handlesPanel(chain.getThisObject())) {
-                    // Retain native pipeline updates and the non-animated cleanup path.
-                    // No animator begins, so no completion counter can remain pending.
-                    args[1] = false;
-                    return chain.proceed(args);
+                if (args.length == 3) {
+                    if (Boolean.FALSE.equals(args[0])) {
+                        IosNotificationCenterPresentation.prepareCollapse();
+                    }
+                    if (handlesPanel(chain.getThisObject())) {
+                        // Retain native pipeline updates and the non-animated cleanup path.
+                        // No animator begins, so no completion counter can remain pending.
+                        args[1] = false;
+                        return chain.proceed(args);
+                    }
                 }
                 return chain.proceed();
             });

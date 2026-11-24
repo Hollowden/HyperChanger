@@ -116,18 +116,13 @@ final class IosNotificationShortcutHost extends FrameLayout {
         }
         IosNotificationShortcutHost current = overlay;
         if (current == null) return;
-        // Keep shortcut buttons on the same visual curve and blur envelope as the hosted
-        // clock and notification stack. The raw expansion fraction is intentionally retained
-        // for lifecycle/interaction gating, while this smooth value drives presentation only.
-        float visual = progress * progress * (3f - 2f * progress);
+        // 底部快捷按钮与前景组件同步透明度曲线，并移除每帧动态 RenderEffect 高斯模糊以稳定 120 FPS
+        float baseAlpha = IosNotificationCenterPresentation.visualAlpha();
+        float visual = baseAlpha * baseAlpha * (3f - 2f * baseAlpha);
         if (current.getAlpha() != visual) current.setAlpha(visual);
-        int blur = Math.round(28f * panel.getResources().getDisplayMetrics().density
-                * (1f - visual));
-        blur = (blur + 1) / 2 * 2;
-        if (blur != current.lastBlur) {
-            current.setRenderEffect(blur == 0 ? null
-                    : RenderEffect.createBlurEffect(blur, blur, Shader.TileMode.CLAMP));
-            current.lastBlur = blur;
+        if (current.lastBlur != 0) {
+            current.setRenderEffect(null);
+            current.lastBlur = 0;
         }
         float x = sheet == null ? 0f : sheet.getTranslationX();
         float y = sheet == null ? 0f : sheet.getTranslationY();
@@ -161,9 +156,12 @@ final class IosNotificationShortcutHost extends FrameLayout {
             top = Math.min(top, point[1]);
         }
         if (top == Float.POSITIVE_INFINITY) return 0f;
+        // overlay 随下拉幕布做负向 Y 平移，必须减去 overlay.getTranslationY() 还原为展开静止态的面板内坐标，
+        // 否则下拉中途 bottomSpace 会暴涨 +H*(1-p)，将通知栈与锁屏时钟全部压扁到屏幕最顶部。
+        float restingTop = top - overlay.getTranslationY();
         // viewportBottom() already removes the navigation inset; reserve only the shortcut
         // area above that boundary so the system bottom space is not subtracted twice.
-        return Math.max(0f, Math.min(panel.getHeight(), safeBottom - top));
+        return Math.max(0f, Math.min(panel.getHeight(), safeBottom - restingTop));
     }
 
     private static void revealBranch(View view) {
