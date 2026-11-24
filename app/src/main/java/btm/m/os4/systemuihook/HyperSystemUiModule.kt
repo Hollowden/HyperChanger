@@ -1036,6 +1036,14 @@ class HyperSystemUiModule : XposedModule() {
                 applyMiniPlayerMaterial(view, miniPlayerAppearance(getRemotePreferences(REMOTE_PREFERENCE_GROUP)), loader)
             }
         }.onFailure { HookModuleLogger.log(this, android.util.Log.ERROR, "HyperMusicCover", "Runtime installation failed in ${param.packageName}", it) }
+        if (param.packageName == DOUYIN_PACKAGE_NAME) {
+            runCatching {
+                DouyinAudioMixGuardHooks.install(this, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
+            }.onFailure { error ->
+                HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install Douyin AudioMix guard hooks", error)
+            }
+            return
+        }
         if (param.packageName == "com.xiaomi.trustservice") {
             val preferences = getRemotePreferences(REMOTE_PREFERENCE_GROUP)
             if (preferences.isEnvironmentDetectionEnabled() && preferences.getBoolean(KEY_TRUSTSERVICE_DIAGNOSTICS, false)) {
@@ -3219,7 +3227,8 @@ class HyperSystemUiModule : XposedModule() {
                         )
                     }
                     val resourceName = runCatching {
-                        view?.resources?.getResourceEntryName(view.id)
+                        val id = view?.id ?: View.NO_ID
+                        if (id == View.NO_ID || id == 0) null else view?.resources?.getResourceEntryName(id)
                     }.getOrNull()
                     // 0 keeps SystemUI's original presentation, 1 replaces it with the
                     // independent label, and 2 hides the network type completely.
@@ -11865,22 +11874,29 @@ class HyperSystemUiModule : XposedModule() {
         }
     }
 
-    private fun Resources.entryName(resourceId: Int): String? = runCatching {
-        getResourceEntryName(resourceId)
-    }.getOrNull()
+    private fun Resources.entryName(resourceId: Int): String? {
+        if (resourceId == View.NO_ID || resourceId == 0) return null
+        return runCatching {
+            getResourceEntryName(resourceId)
+        }.getOrNull()
+    }
 
     private fun dpToPixels(view: View, value: Float): Float =
         value.coerceIn(0f, 60f) * view.resources.displayMetrics.density
 
     private fun isControlCenterSliderPart(view: View): Boolean {
-        val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull()
+        val id = view.id
+        if (id == View.NO_ID || id == 0) return false
+        val idName = runCatching { view.resources.getResourceEntryName(id) }.getOrNull()
         return idName in SLIDER_PART_IDS && generateSequence(view.parent) { it.parent }
             .filterIsInstance<View>()
             .any { parent -> parent.javaClass.name.contains("ToggleSlider") }
     }
 
     private fun isControlCenterSliderBackgroundPart(view: View): Boolean {
-        val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull()
+        val id = view.id
+        if (id == View.NO_ID || id == 0) return false
+        val idName = runCatching { view.resources.getResourceEntryName(id) }.getOrNull()
         return idName == "progress_bg" && isControlCenterSliderPart(view)
     }
 

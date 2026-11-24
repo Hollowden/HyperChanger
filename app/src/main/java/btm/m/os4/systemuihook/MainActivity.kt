@@ -96,6 +96,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
@@ -2384,6 +2385,9 @@ private fun OtherPage(
             ),
         )
     }
+    var douyinBgAudioMixGuard by remember(service) {
+        mutableStateOf(scopedPrefs.getBoolean(KEY_DOUYIN_BG_AUDIOMIX_GUARD, true))
+    }
     AppPage(
     tr("其他", "其他"),
     back,
@@ -2476,6 +2480,18 @@ private fun OtherPage(
                 SharedViewArrowPreference(
                     title = tr("拨号与通话", "拨号与通话"),
                     onClick = { open(PageId.CONTACTS_DIALER) },
+                )
+                SwitchPreference(
+                    title = tr("douyinBgAudioMixGuard", "抖音后台 AudioMix 防泄漏守护"),
+                    summary = tr("douyinBgAudioMixGuardSummary", "抖音退至后台或息屏 8 秒后自动暂停并释放残留 AudioTrack，防止通宵持有 AudioMix 唤醒锁耗电（需在 LSPosed 勾选抖音作用域）。"),
+                    checked = douyinBgAudioMixGuard,
+                    onCheckedChange = { enabled ->
+                        douyinBgAudioMixGuard = enabled
+                        context.getSharedPreferences(REMOTE_PREFERENCE_GROUP, Context.MODE_PRIVATE)
+                            .edit().putBoolean(KEY_DOUYIN_BG_AUDIOMIX_GUARD, enabled).apply()
+                        service?.getRemotePreferences(REMOTE_PREFERENCE_GROUP)
+                            ?.edit()?.putBoolean(KEY_DOUYIN_BG_AUDIOMIX_GUARD, enabled)?.apply()
+                    },
                 )
                 SwitchPreference(
                     title = tr("去除表盘试用10分钟限制", "去除表盘试用10分钟限制"),
@@ -6839,6 +6855,12 @@ private fun IosNotificationCenterPage(
                                 stagedExpansion = expansionStore.enabled
                             },
                         )
+                        RenderOverlapInfoTip(
+                            tr(
+                                "iosNotificationStagedExpansionPowerTip",
+                                "开启后会在下拉阶段先渲染全屏圆角液态玻璃；若与「通知与超级岛 → 通知 → 为通知堆叠添加模糊」及「系统界面与材质调整 → 柔光玻璃参数调整」同时开启，下拉时会叠加整屏玻璃与内部卡片多层实时模糊采样，增加 GPU 瞬时功耗。",
+                            ),
+                        )
                         if (stagedExpansion) {
                             SwitchPreference(
                                 title = tr("iosNotificationBottomRefraction", "底部玻璃折射"),
@@ -6848,6 +6870,12 @@ private fun IosNotificationCenterPage(
                                     refractionStore.update(service, enabled)
                                     bottomRefraction = refractionStore.enabled
                                 },
+                            )
+                            RenderOverlapInfoTip(
+                                tr(
+                                    "iosNotificationBottomRefractionPowerTip",
+                                    "该功能会在整屏背景模糊与边框之上额外叠加实时边缘折射计算；若与「通知与超级岛 → 通知 → 为通知堆叠添加模糊」或「通知中心大时钟柔光玻璃」同时开启，下拉时 GPU 负载会进一步升高，关闭后仍可保留背景模糊与细边框。",
+                                ),
                             )
                         }
                         SharedViewArrowPreference(
@@ -6927,6 +6955,12 @@ private fun IosNotificationClockGlassPage(back: () -> Unit) {
                         title = tr("iosNotificationClockGlassEnabled", "启用大时钟柔光玻璃调整"),
                         checked = value.enabled,
                         onCheckedChange = { enabled -> update { it.copy(enabled = enabled) } },
+                    )
+                    RenderOverlapInfoTip(
+                        tr(
+                            "iosNotificationClockGlassPowerTip",
+                            "建议开启下方「使用全局柔光玻璃材质参数」以统一材质基线；若与「通知与超级岛 → iOS 风格通知中心 → 分段展开动画 / 底部玻璃折射」同时开启，下拉通知中心时大时钟与底层玻璃面板会同时进行实时采样，略微增加 GPU 瞬时功耗。",
+                        ),
                     )
                     AnimatedVisibility(visible = value.enabled) {
                         SwitchPreference(
@@ -7265,6 +7299,12 @@ private fun Shade(
                         softGlass = softGlassStore.settings
                         glassChanged()
                     },
+                )
+                RenderOverlapInfoTip(
+                    tr(
+                        "softGlassOverlapPowerTip",
+                        "该功能复用系统原生柔光玻璃管线微调参数，本身不叠加额外模糊层；但若与「通知与超级岛 → 通知 → 为通知堆叠添加模糊」或「通知与超级岛 → iOS 风格通知中心 → 分段展开动画 / 底部玻璃折射」同时开启，下拉通知中心时会在同一帧叠加多层实时模糊与折射采样，增加 GPU 瞬时功耗。",
+                    ),
                 )
                 AnimatedVisibility(
                     visible = softGlass.enabled,
@@ -8795,6 +8835,12 @@ private fun Island(
                         stackBlurStore.update(service, enabled)
                         stackBlurEnabled = stackBlurStore.enabled
                     },
+                )
+                RenderOverlapInfoTip(
+                    tr(
+                        "notificationStackBlurPowerTip",
+                        "该功能会为堆叠卡片额外叠加一层 RenderEffect 实时离屏高斯模糊；若与「系统界面与材质调整 → 柔光玻璃参数调整」或「通知与超级岛 → iOS 风格通知中心」同时开启，滑动通知堆叠时每帧会产生双层实时模糊重绘，显著增加 GPU 功耗（建议关闭，或将自定义模糊度控制在 0 px 以下）。",
+                    ),
                 )
                 AnimatedVisibility(
                     visible = stackBlurEnabled,
@@ -15422,5 +15468,33 @@ private fun HyperMusicCoverOptions(section: HyperMusicCoverSection) {
                 FloatSlide(tr("hmcBgOpacity", "背景歌词不透明度"), appearance.optDouble("bgOpacity", 0.72).toFloat(), 0f..1f, .72f) { updateAppearance("bgOpacity", it) }
             }
         }
+    }
+}
+
+/** 在存在多层实时虚化/折射叠加的开关行下方展示浅色 ⓘ 功耗提示。 */
+@Composable
+private fun RenderOverlapInfoTip(text: String) {
+    val tipColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.78f)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = null,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(14.dp),
+            tint = tipColor,
+        )
+        Text(
+            text = text,
+            modifier = Modifier.weight(1f),
+            style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 17.sp),
+            color = tipColor,
+        )
     }
 }
