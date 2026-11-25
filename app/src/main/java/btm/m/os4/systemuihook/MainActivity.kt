@@ -325,7 +325,7 @@ private enum class PageId {
     GESTURE_HANDLE_STYLE, DESKTOP, DESKTOP_MATERIAL,
     ISLAND, ISLAND_COLLAPSED, ISLAND_EXPANDED, ISLAND_EXPANDED_BACKGROUND, IOS_NOTIFICATION_CENTER, IOS_NOTIFICATION_HEADER_SETTINGS, UNLOCK_ISLAND, NOTIFICATION_RESTRICTIONS, NOTIFICATION_MEDIA_CARD, STATUS, STATUS_ADJUSTMENT, STATUS_SIGNAL_CUSTOMIZATION, STATUS_SIGNAL_TUNING, CONTROL, LOCK, LOCKSCREEN_MUSIC, LOCKSCREEN_CAPSULE, LOCKSCREEN_SHORTCUT_BACKGROUND, LIFT_TO_WAKE_SCHEDULE, LOCKSCREEN_WIDGET_EDITOR, LOCKSCREEN_WIDGET_BACKGROUND, LYRIC_LIBRARY, RASTER_WALLPAPER, SUPER_XIAOAI, CAMERA, CAMERA_PALETTE, SYSTEM_UPDATE, SYSTEM_SETTINGS, SYSTEM_FRAMEWORK, DEVICE_PROFILE,
     DEVICE_PROFILE_PRESETS, DEVICE_PROFILE_CLOUD_PRESETS, CUSTOM_DEPTH_WALLPAPER,
-    SETTINGS_APPEARANCE_HOME, SETTINGS_APPEARANCE_DEVICE, SETTINGS_ENTRY_LABELS, SETTINGS_ENTRY_ICONS, SETTINGS_ENTRY_APPEARANCE, THEME_AND_COLOR, TUTORIAL_DEVICE_CARD, ABOUT, LICENSE, LANGUAGE, DONATE, OPEN, CONTRIBUTORS,
+    SETTINGS_FLOATING_SEARCH_PARAMETERS, SETTINGS_APPEARANCE_HOME, SETTINGS_APPEARANCE_DEVICE, SETTINGS_ENTRY_LABELS, SETTINGS_ENTRY_ICONS, SETTINGS_ENTRY_APPEARANCE, THEME_AND_COLOR, TUTORIAL_DEVICE_CARD, ABOUT, LICENSE, LANGUAGE, DONATE, OPEN, CONTRIBUTORS,
     LEGAL_DISCLAIMER, LEGAL_PRIVACY, LEGAL_USER_AGREEMENT,
     SOFTWARE_UPDATE, UPDATE_LOG, REAR_SCREEN, REAR_SCREEN_SHELL, REAR_CUSTOM_CENTER, REAR_MUSIC_APPS, REAR_SWIPE_APP, REAR_MINI_PLAYER, OTHER, SIDEBAR, SIDEBAR_GLASS, PERSONAL_ASSISTANT, ASSISTANT_WIDGET_GLASS, CONTACTS_DIALER, CONTACTS_DIALER_BACKGROUND, PORTAL, PORTAL_MATERIAL, APP_NAVIGATION, RESTART_SCOPES, DISCLAIMER, SIMULATE_MEDIA_NOTIFICATION, SIMULATE_ISLAND, MODULE_PRESET_IMPORT_PREVIEW,
     STATUS_MOBILE_NETWORK_TYPE_TUNING,
@@ -4373,31 +4373,7 @@ private fun HomeGlassMaterialControls(dock: Boolean) {
         else Toast.makeText(context, tr("写入桌面配置失败，请检查 Root 权限", "写入桌面配置失败，请检查 Root 权限"), Toast.LENGTH_LONG).show()
     }
     Column {
-        if (dock) {
-            OverlayDropdownPreference(
-                title = tr("柔光玻璃参数来源", "柔光玻璃参数来源"),
-                items = listOf(tr("系统默认", "系统默认"), tr("全局柔光玻璃参数", "全局柔光玻璃参数"), tr("自定义", "自定义")),
-                selectedIndex = selected.dockSource.ordinal,
-                onSelectedIndexChange = { index -> apply { it.copy(dockSource = DockGlassParameterSource.entries[index]) } },
-            )
-        } else {
-            SwitchPreference(
-                title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"),
-                checked = selected.useGlobal,
-                onCheckedChange = { value -> apply { it.copy(useGlobal = value) } },
-            )
-        }
-        AnimatedVisibility(
-            visible = if (dock) selected.dockSource == DockGlassParameterSource.CUSTOM else !selected.useGlobal,
-            enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-            exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-        ) {
-            SoftGlassMaterialSliders(
-                glass = selected.glass,
-                onChange = { transform -> apply { it.copy(glass = transform(it.glass)) } },
-                includeBackdrop = false,
-            )
-        }
+        UnifiedSoftGlassLinkRow(if (dock) SoftGlassSlot.HOME_DOCK else SoftGlassSlot.HOME_DESKTOP)
     }
 }
 
@@ -4523,6 +4499,15 @@ private fun FrameworkPage(back: () -> Unit) {
                         checked = framework.disableDeviceNameCheck,
                         onCheckedChange = { value -> apply { it.copy(disableDeviceNameCheck = value) } },
                     )
+                    SwitchPreference(
+                        title = tr("阻止三方应用在 Wi-Fi 下抢占蜂窝网络", "阻止三方应用在 Wi-Fi 下抢占蜂窝网络"),
+                        summary = tr(
+                            "Wi-Fi 可用时将第三方应用的常驻 5G/流量请求降级为被动监听，避免后台常驻 5G 耗电与反复弹出 5GA；不影响系统自动切流量与运营商一键登录。",
+                            "Wi-Fi 可用时将第三方应用的常驻 5G/流量请求降级为被动监听，避免后台常驻 5G 耗电与反复弹出 5GA；不影响系统自动切流量与运营商一键登录。",
+                        ),
+                        checked = framework.blockThirdPartyCellularOnWifi,
+                        onCheckedChange = { value -> apply { it.copy(blockThirdPartyCellularOnWifi = value) } },
+                    )
                 }
             }
             item {
@@ -4601,6 +4586,18 @@ private fun SystemSettings(
             advancedColorStyleStore.syncRemote(it)
             advancedColorStyle = advancedColorStyleStore.settings
         }
+    }
+    val floatingSearchStore = remember(cpuIconContext) { SettingsFloatingSearchSettingsStore(cpuIconContext) }
+    var floatingSearch by remember { mutableStateOf(floatingSearchStore.settings) }
+    LaunchedEffect(appScopeService) {
+        appScopeService?.let(floatingSearchStore::syncRemote)
+        floatingSearch = floatingSearchStore.settings
+    }
+    val titleBarBlurStore = remember(cpuIconContext) { SettingsTitleBarBlurSettingsStore(cpuIconContext) }
+    var titleBarBlur by remember { mutableStateOf(titleBarBlurStore.settings) }
+    LaunchedEffect(appScopeService) {
+        appScopeService?.let(titleBarBlurStore::syncRemote)
+        titleBarBlur = titleBarBlurStore.settings
     }
     val soundEffectStore = remember(cpuIconContext) { SoundEffectPreferencesStore(cpuIconContext) }
     var soundEffect by remember { mutableStateOf(soundEffectStore.settings) }
@@ -4763,6 +4760,30 @@ private fun SystemSettings(
                         )
                     }
                 }
+                SwitchPreference(
+                    title = tr("settingsFloatingSearchEnabled", "启用高级材质搜索框"),
+                    summary = tr("settingsFloatingSearchSummary", "使用高级材质/液态玻璃替换系统设置首页搜索框，跟随原生搜索动画过渡。重启设置后生效。"),
+                    checked = floatingSearch.enabled,
+                    onCheckedChange = { enabled ->
+                        floatingSearchStore.update(appScopeService) { it.copy(enabled = enabled) }
+                        floatingSearch = floatingSearchStore.settings
+                    },
+                )
+                AnimatedVisibility(floatingSearch.enabled) {
+                    SharedViewArrowPreference(
+                        title = tr("settingsFloatingSearchParameters", "高级材质搜索框参数自定义"),
+                        onClick = { open(PageId.SETTINGS_FLOATING_SEARCH_PARAMETERS) },
+                    )
+                }
+                SwitchPreference(
+                    title = tr("settingsTitleBarBlurEnabled", "启用设置标题栏渐变模糊"),
+                    summary = tr("settingsTitleBarBlurSummary", "消除设置页面下滑后顶部生硬的纯色渐隐遮罩，替换为柔和渐变毛玻璃。重启设置后生效。"),
+                    checked = titleBarBlur.enabled,
+                    onCheckedChange = { enabled ->
+                        titleBarBlurStore.update(appScopeService) { it.copy(enabled = enabled) }
+                        titleBarBlur = titleBarBlurStore.settings
+                    },
+                )
                 SwitchPreference(
                     title = tr("解锁更多自动锁屏选项", "解锁更多自动锁屏选项"),
                     checked = settingsApp.unlockNeverScreenTimeout,
@@ -5915,6 +5936,7 @@ private fun Detail(
     onConfirmModulePresetImport: () -> Unit,
     onCancelModulePresetImport: () -> Unit,
 ) {
+    CompositionLocalProvider(LocalOpenSoftGlassPage provides { openPage(PageId.SOFT_GLASS_PARAMETERS) }) {
     when (page) {
         PageId.MODULE_SAFETY -> ModuleSafetyPage(
             openLogs = { openPage(PageId.MODULE_LOGS) },
@@ -5962,6 +5984,7 @@ private fun Detail(
         PageId.CAMERA_PALETTE -> CameraPalette(cameras, updateCamera, back)
         PageId.SYSTEM_UPDATE -> SystemUpdate(systemUpdate, updateSystemUpdate, back)
         PageId.SYSTEM_FRAMEWORK -> FrameworkPage(back)
+        PageId.SETTINGS_FLOATING_SEARCH_PARAMETERS -> SettingsFloatingSearchPage(back)
     PageId.SYSTEM_SETTINGS -> SystemSettings(settingsApp, updateSettingsApp, deviceProfile, updateDeviceProfile, appearance, updateAppearance, openPage, onPickAppearanceLogo, onClearAppearanceLogo, back)
         PageId.DEVICE_PROFILE -> DeviceProfileEditor(deviceProfile, updateDeviceProfile, { openPage(PageId.DEVICE_PROFILE_PRESETS) }, back)
         PageId.DEVICE_PROFILE_PRESETS -> DeviceProfilePresetsPage(deviceProfile, updateDeviceProfile, { openPage(PageId.DEVICE_PROFILE_CLOUD_PRESETS) }, back)
@@ -6022,6 +6045,7 @@ private fun Detail(
             onConfirm = onConfirmModulePresetImport,
             onCancel = onCancelModulePresetImport,
         )
+    }
     }
 }
 
@@ -6951,52 +6975,13 @@ private fun IosNotificationClockGlassPage(back: () -> Unit) {
         AppList(padding, scroll, 28) {
             item {
                 Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
-                    SwitchPreference(
-                        title = tr("iosNotificationClockGlassEnabled", "启用大时钟柔光玻璃调整"),
-                        checked = value.enabled,
-                        onCheckedChange = { enabled -> update { it.copy(enabled = enabled) } },
-                    )
+                    UnifiedSoftGlassLinkRow(SoftGlassSlot.IOS_NOTIFICATION_CLOCK)
                     RenderOverlapInfoTip(
                         tr(
                             "iosNotificationClockGlassPowerTip",
-                            "建议开启下方「使用全局柔光玻璃材质参数」以统一材质基线；若与「通知与超级岛 → iOS 风格通知中心 → 分段展开动画 / 底部玻璃折射」同时开启，下拉通知中心时大时钟与底层玻璃面板会同时进行实时采样，略微增加 GPU 瞬时功耗。",
+                            "大时钟柔光玻璃已纳入「系统界面与材质调整 → 柔光玻璃参数调整」统一管理；若与「通知与超级岛 → iOS 风格通知中心 → 分段展开动画 / 底部玻璃折射」同时开启，下拉通知中心时大时钟与底层玻璃面板会同时进行实时采样，略微增加 GPU 瞬时功耗。",
                         ),
                     )
-                    AnimatedVisibility(visible = value.enabled) {
-                        SwitchPreference(
-                            title = tr("iosNotificationClockGlassUseGlobal", "使用全局柔光玻璃材质参数"),
-                            checked = value.useGlobal,
-                            onCheckedChange = { useGlobal -> update { it.copy(useGlobal = useGlobal) } },
-                        )
-                    }
-                }
-            }
-            if (value.enabled && !value.useGlobal) item {
-                Group(tr("iosNotificationClockGlassParameters", "大时钟柔光玻璃参数")) {
-                    val glass = value.glass
-                    ParameterIntSlide(tr("玻璃模糊", "玻璃模糊"), glass.refractionBlur, 0..200, "%", 100) { number ->
-                        update { it.copy(glass = it.glass.copy(refractionBlur = number)) }
-                    }
-                    softGlassParameters.forEach { definition ->
-                        ParameterIntSlide(
-                            tr(definition.title, definition.title),
-                            glass.adjustments[definition.key] ?: 0,
-                            definition.adjustmentRange,
-                            "%",
-                            if (definition.key == "darker") -100 else 0,
-                        ) { number ->
-                            update { it.copy(glass = it.glass.copy(adjustments = it.glass.adjustments + (definition.key to number))) }
-                        }
-                    }
-                    ParameterIntSlide(tr("softGlassBackgroundBlur", "背景模糊度"), glass.backgroundBlur, 0..200, "%", 100) { number ->
-                        update { it.copy(glass = it.glass.copy(backgroundBlur = number)) }
-                    }
-                    ParameterIntSlide(tr("softGlassBackgroundScale", "背景缩放程度"), glass.backgroundScale, 0..200, "%", 100) { number ->
-                        update { it.copy(glass = it.glass.copy(backgroundScale = number)) }
-                    }
-                    ParameterIntSlide(tr("背景不透明度", "背景不透明度"), glass.backgroundOpacity, 0..200, "%", 100) { number ->
-                        update { it.copy(glass = it.glass.copy(backgroundOpacity = number)) }
-                    }
                 }
             }
         }
@@ -7280,42 +7265,45 @@ private fun Shade(
             ?.apply()
     }
     val softGlassStore = remember(context) { SoftGlassSettingsStore(context) }
-    var softGlass by remember { mutableStateOf(softGlassStore.settings) }
+    var unifiedSnapshot by remember(context) { mutableStateOf(SoftGlassUnifiedPolicy.readSnapshot(context)) }
     val glassChanged = LocalNotificationSettingsChanged.current
     LaunchedEffect(service) {
         softGlassStore.reload()
         service?.let(softGlassStore::syncRemote)
-        softGlass = softGlassStore.settings
+        unifiedSnapshot = SoftGlassUnifiedPolicy.readSnapshot(context)
     }
     AppList(p, scroll, 28) {
         item {
             Group(tr("柔光玻璃参数调整", "柔光玻璃参数调整")) {
-                SwitchPreference(
-                    title = tr("柔光玻璃参数调整", "柔光玻璃参数调整"),
-                    summary = tr("softGlassScope", "统一调整通知、控制中心与悬浮通知的柔光玻璃，保留系统浅色与深色材质差异。"),
-                    checked = softGlass.enabled,
-                    onCheckedChange = { enabled ->
-                        softGlassStore.update(service) { it.copy(enabled = enabled) }
-                        softGlass = softGlassStore.settings
+                OverlayDropdownPreference(
+                    title = tr("柔光玻璃材质策略", "柔光玻璃材质策略"),
+                    summary = unifiedSnapshot.mode.summary,
+                    items = SoftGlassUnifiedMode.entries.map { it.title },
+                    selectedIndex = unifiedSnapshot.mode.ordinal,
+                    onSelectedIndexChange = { index ->
+                        val next = SoftGlassUnifiedMode.entries[index]
+                        SoftGlassUnifiedPolicy.setMode(context, service, next)
+                        unifiedSnapshot = SoftGlassUnifiedPolicy.readSnapshot(context)
                         glassChanged()
                     },
                 )
                 RenderOverlapInfoTip(
                     tr(
                         "softGlassOverlapPowerTip",
-                        "该功能复用系统原生柔光玻璃管线微调参数，本身不叠加额外模糊层；但若与「通知与超级岛 → 通知 → 为通知堆叠添加模糊」或「通知与超级岛 → iOS 风格通知中心 → 分段展开动画 / 底部玻璃折射」同时开启，下拉通知中心时会在同一帧叠加多层实时模糊与折射采样，增加 GPU 瞬时功耗。",
+                        "全系统 12 处柔光玻璃材质已收口至此统一管理。选择「全体使用系统默认柔光玻璃」功耗最低；若与「为通知堆叠添加模糊」或「iOS 通知中心分段展开动画 / 底部玻璃折射」同时开启，下拉时会叠加多层实时采样并增加 GPU 瞬时功耗。",
                     ),
                 )
-                AnimatedVisibility(
-                    visible = softGlass.enabled,
-                    enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-                    exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-                ) {
-                    Column {
-                        SharedViewArrowPreference(title = tr("柔光玻璃参数调整", "柔光玻璃参数调整"), onClick = { openPage(PageId.SOFT_GLASS_PARAMETERS) })
-                        SharedViewArrowPreference(title = tr("softGlassPresets", "柔光玻璃预设"), onClick = { openPage(PageId.SOFT_GLASS_PRESETS) })
-                    }
-                }
+                SharedViewArrowPreference(
+                    title = tr("柔光玻璃参数调整", "柔光玻璃参数调整"),
+                    summary = tr("softGlassHubEntrySummary", "管理各位置材质分配、玻璃光学参数与背景调整"),
+                    onClick = { openPage(PageId.SOFT_GLASS_PARAMETERS) },
+                )
+                SharedViewArrowPreference(
+                    title = tr("softGlassPresets", "柔光玻璃预设"),
+                    summary = unifiedSnapshot.presets.firstOrNull { it.id == unifiedSnapshot.appliedPresetId }?.let { "当前预设：${it.name}" }
+                        ?: tr("softGlassPresetsEntrySummary", "选择、保存、导入或分享柔光玻璃预设方案"),
+                    onClick = { openPage(PageId.SOFT_GLASS_PRESETS) },
+                )
             }
         }
 
@@ -7427,30 +7415,81 @@ private fun SoftGlassParametersPage(openPage: (PageId) -> Unit, back: () -> Unit
     val changed = LocalNotificationSettingsChanged.current
     val store = remember(context) { SoftGlassSettingsStore(context) }
     var value by remember { mutableStateOf(store.settings) }
+    var unified by remember(context) { mutableStateOf(SoftGlassUnifiedPolicy.readSnapshot(context)) }
     LaunchedEffect(service) {
         store.reload()
         service?.let(store::syncRemote)
         value = store.settings
+        unified = SoftGlassUnifiedPolicy.readSnapshot(context)
+    }
+    DisposableEffect(context) {
+        val prefs = context.getSharedPreferences(REMOTE_PREFERENCE_GROUP, Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            store.reload()
+            value = store.settings
+            unified = SoftGlassUnifiedPolicy.readSnapshot(context)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     val updateGlass: ((SoftGlassSettings) -> SoftGlassSettings) -> Unit = { transform ->
         store.update(service, transform)
         value = store.settings
+        if (unified.mode == SoftGlassUnifiedMode.SYSTEM_DEFAULT) {
+            SoftGlassUnifiedPolicy.setMode(context, service, SoftGlassUnifiedMode.GLOBAL_PRESET)
+        } else {
+            SoftGlassUnifiedPolicy.applyAll(context, service)
+        }
+        unified = SoftGlassUnifiedPolicy.readSnapshot(context)
         changed()
     }
     AppPage(
         tr("柔光玻璃参数调整", "柔光玻璃参数调整"), back,
-        restartScopes = setOf(ScopeApplication.SYSTEM_UI),
+        restartScopes = setOf(
+            ScopeApplication.SYSTEM_UI,
+            ScopeApplication.DESKTOP,
+            ScopeApplication.PERSONAL_ASSISTANT,
+            ScopeApplication.SECURITY_CENTER,
+            ScopeApplication.PORTAL,
+        ),
         header = {
-            SoftGlassHeaderTabs(
-                listOf(tr("玻璃参数调整", "玻璃参数调整"), tr("背景调整", "背景调整")),
-                tab, { tab = it },
-            )
+            Column(Modifier.fillMaxWidth()) {
+                SoftGlassHeaderTabs(
+                    listOf(
+                        tr("方案与位置", "方案与位置"),
+                        tr("玻璃参数调整", "玻璃参数调整"),
+                        tr("背景调整", "背景调整"),
+                    ),
+                    tab, { tab = it },
+                )
+                SoftGlassLivePreviewSection(
+                    settings = value,
+                    presetLabel = unified.presets.firstOrNull { it.id == unified.appliedPresetId }?.name,
+                )
+            }
         },
     ) { padding, scroll ->
         AppList(padding, scroll, 28) {
             item {
-                Group(tr("softGlassPresets", "柔光玻璃预设")) {
-                    SharedViewArrowPreference(title = tr("softGlassPresets", "柔光玻璃预设"), onClick = { openPage(PageId.SOFT_GLASS_PRESETS) })
+                Group(tr("柔光玻璃统一策略", "柔光玻璃统一策略")) {
+                    OverlayDropdownPreference(
+                        title = tr("柔光玻璃材质策略", "柔光玻璃材质策略"),
+                        summary = unified.mode.summary,
+                        items = SoftGlassUnifiedMode.entries.map { it.title },
+                        selectedIndex = unified.mode.ordinal,
+                        onSelectedIndexChange = { index ->
+                            SoftGlassUnifiedPolicy.setMode(context, service, SoftGlassUnifiedMode.entries[index])
+                            unified = SoftGlassUnifiedPolicy.readSnapshot(context)
+                            value = store.apply { reload() }.settings
+                            changed()
+                        },
+                    )
+                    SharedViewArrowPreference(
+                        title = tr("softGlassPresets", "柔光玻璃预设"),
+                        summary = unified.presets.firstOrNull { it.id == unified.appliedPresetId }?.let { "当前预设：${it.name}" }
+                            ?: tr("softGlassPresetsPick", "选择内置预设、新建/保存或导入多套自定义方案"),
+                        onClick = { openPage(PageId.SOFT_GLASS_PRESETS) },
+                    )
                     SharedViewArrowPreference(
                         title = tr("softGlassReset", "恢复柔光玻璃默认参数"),
                         onClick = { showResetConfirmation = true },
@@ -7458,6 +7497,83 @@ private fun SoftGlassParametersPage(openPage: (PageId) -> Unit, back: () -> Unit
                 }
             }
             if (tab == 0) {
+                if (unified.mode == SoftGlassUnifiedMode.PER_SLOT_CUSTOM) {
+                    item {
+                        Group(tr("批量快捷操作", "批量快捷操作")) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                GlassDialogButton(
+                                    onClick = {
+                                        SoftGlassUnifiedPolicy.setAllSlots(context, service, SOFT_GLASS_PLAN_GLOBAL)
+                                        unified = SoftGlassUnifiedPolicy.readSnapshot(context)
+                                        changed()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColorsPrimary(),
+                                ) { Text(tr("全选（全局预设）", "全选（全局预设）")) }
+                                GlassDialogButton(
+                                    onClick = {
+                                        SoftGlassUnifiedPolicy.setAllSlots(context, service, SOFT_GLASS_PLAN_SYSTEM_DEFAULT)
+                                        unified = SoftGlassUnifiedPolicy.readSnapshot(context)
+                                        changed()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(tr("全部系统默认", "全部系统默认")) }
+                            }
+                        }
+                    }
+                    val globalPresetLabel = unified.presets.firstOrNull { it.id == unified.appliedPresetId }
+                        ?.let { "跟随当前全局预设（${it.name}）" }
+                        ?: "跟随当前全局参数"
+                    val fullOptionIds = listOf(SOFT_GLASS_PLAN_SYSTEM_DEFAULT, SOFT_GLASS_PLAN_GLOBAL) +
+                        unified.presets.map { it.id }
+                    val fullOptionLabels = listOf("系统默认柔光玻璃", globalPresetLabel) +
+                        unified.presets.map { if (it.builtIn) "内置预设：${it.name}" else "自定义方案：${it.name}" }
+                    val simpleOptionIds = listOf(SOFT_GLASS_PLAN_SYSTEM_DEFAULT, SOFT_GLASS_PLAN_GLOBAL)
+                    val simpleOptionLabels = listOf("系统默认柔光玻璃", globalPresetLabel)
+                    SoftGlassSlot.entries.groupBy { it.group }.forEach { (groupTitle, slots) ->
+                        item {
+                            Group(groupTitle) {
+                                slots.forEach { slot ->
+                                    val ids = if (slot.supportsPerPreset) fullOptionIds else simpleOptionIds
+                                    val labels = if (slot.supportsPerPreset) fullOptionLabels else simpleOptionLabels
+                                    val currentPlan = unified.effectivePlan(slot)
+                                    val selectedIdx = ids.indexOf(currentPlan).takeIf { it >= 0 } ?: 0
+                                    OverlayDropdownPreference(
+                                        title = slot.title,
+                                        items = labels,
+                                        selectedIndex = selectedIdx,
+                                        onSelectedIndexChange = { idx ->
+                                            SoftGlassUnifiedPolicy.setSlotPlan(context, service, slot, ids[idx])
+                                            unified = SoftGlassUnifiedPolicy.readSnapshot(context)
+                                            changed()
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    item {
+                        Group(tr("当前覆盖范围（共 12 处位置）", "当前覆盖范围（共 12 处位置）")) {
+                            Text(
+                                text = if (unified.mode == SoftGlassUnifiedMode.SYSTEM_DEFAULT) {
+                                    "当前已关闭所有 12 处位置的自定义柔光覆盖，全部使用系统默认柔光玻璃（最省电）。如需微调参数或按位置分配多套预设，请在上方切换策略。"
+                                } else {
+                                    "当前所有 12 处位置已统一使用上方选中的柔光玻璃预设与参数，无需在各个子页面重复设置。如需给不同位置指派不同预设，请在上方切换为「按位置分配方案」。"
+                                },
+                                modifier = Modifier.padding(16.dp),
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+            } else if (tab == 1) {
                 item {
                     Group(tr("softGlassOptics", "玻璃光学参数")) {
                         ParameterIntSlide(tr("玻璃模糊", "玻璃模糊"), value.refractionBlur, 0..200, "%", 100) { n ->
@@ -7475,7 +7591,7 @@ private fun SoftGlassParametersPage(openPage: (PageId) -> Unit, back: () -> Unit
                         }
                     }
                 }
-            } else if (tab == 1) {
+            } else if (tab == 2) {
                 item {
                     Group(tr("背景调整", "背景调整")) {
                         Text(
@@ -7572,6 +7688,11 @@ private fun SoftGlassPresetsPage(back: () -> Unit) {
         store.reload()
         store.applyPreset(service, preset)
         store.setAppliedPreset(service, preset.id)
+        if (SoftGlassUnifiedPolicy.readMode(context.getSharedPreferences(REMOTE_PREFERENCE_GROUP, Context.MODE_PRIVATE)) == SoftGlassUnifiedMode.SYSTEM_DEFAULT) {
+            SoftGlassUnifiedPolicy.setMode(context, service, SoftGlassUnifiedMode.GLOBAL_PRESET)
+        } else {
+            SoftGlassUnifiedPolicy.applyAll(context, service)
+        }
         currentSettings = store.settings
         appliedPresetId = preset.id
         changed()
@@ -7672,7 +7793,17 @@ private fun SoftGlassPresetsPage(back: () -> Unit) {
         if (preset.builtIn) tr(preset.name, preset.name) else preset.name,
         SoftGlassPresetCodec.encode(preset), preset.builtIn,
     )
-    AppPage(tr("softGlassPresets", "柔光玻璃预设"), back) { padding, scroll ->
+    AppPage(
+        tr("softGlassPresets", "柔光玻璃预设"),
+        back,
+        header = {
+            val previewPreset = selected ?: (builtInSoftGlassPresets() + presets).firstOrNull { it.id == appliedPresetId }
+            SoftGlassLivePreviewSection(
+                settings = selected?.settings ?: currentSettings,
+                presetLabel = previewPreset?.let { display(it).name },
+            )
+        },
+    ) { padding, scroll ->
         AppList(padding, scroll, 28) {
             item {
                 Group(tr("softGlassPresets", "柔光玻璃预设")) {
@@ -7817,15 +7948,7 @@ private fun VolumePanelPreferences(
         exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
     ) {
         Column {
-            SwitchPreference(
-                title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"),
-                checked = useGlobal,
-                onCheckedChange = { enabled ->
-                    useGlobal = enabled
-                    store.update(service, enabled)
-                    changed()
-                },
-            )
+            UnifiedSoftGlassLinkRow(SoftGlassSlot.VOLUME_PANEL)
             AnimatedVisibility(
                 visible = !useGlobal,
                 enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
@@ -7843,7 +7966,6 @@ private fun VolumePanelPreferences(
                     }
                 }
             }
-
         }
     }
 
@@ -9094,20 +9216,7 @@ private fun IslandExpandedBackgroundPage(back: () -> Unit) {
         AppList(p, scroll, 28) {
             item {
                 Group(tr("柔光玻璃", "柔光玻璃")) {
-                    SwitchPreference(
-                        title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"),
-                        checked = state.useGlobal,
-                        onCheckedChange = { value -> updateGlass { it.copy(useGlobal = value) } },
-                    )
-                    AnimatedVisibility(
-                        visible = !state.useGlobal,
-                        enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-                        exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-                    ) {
-                        SoftGlassMaterialSliders(state.glass, includeBackdrop = false) { transform ->
-                            updateGlass { it.copy(glass = transform(it.glass)) }
-                        }
-                    }
+                    UnifiedSoftGlassLinkRow(SoftGlassSlot.EXPANDED_ISLAND)
                 }
             }
             item {
@@ -9373,6 +9482,21 @@ private fun Status(
                     items = batteryPercentageModeLabels(),
                     selectedIndex = adjustmentSettings.statusBarBatteryPercentMode,
                     onSelectedIndexChange = { mode -> updateAdjustment { it.copy(statusBarBatteryPercentMode = mode) } },
+                )
+                SwitchPreference(
+                    title = tr("状态栏时间上方显示功率与温度", "状态栏时间上方显示功率与温度"),
+                    summary = tr(
+                        "在左上角状态栏时间上方常驻显示实时电池温度与充放电功率（亮屏每 3 秒更新，息屏零耗电）。",
+                        "在左上角状态栏时间上方常驻显示实时电池温度与充放电功率（亮屏每 3 秒更新，息屏零耗电）。",
+                    ),
+                    checked = adjustmentSettings.statusBarPowerTempMode != STATUS_BAR_POWER_TEMP_OFF,
+                    onCheckedChange = { enabled ->
+                        updateAdjustment {
+                            it.copy(
+                                statusBarPowerTempMode = if (enabled) STATUS_BAR_POWER_TEMP_ABOVE_CLOCK else STATUS_BAR_POWER_TEMP_OFF,
+                            )
+                        }
+                    },
                 )
                 SharedViewArrowPreference(
                     title = tr("\u72b6\u6001\u680f\u4fe1\u53f7\u81ea\u5b9a\u4e49", "\u72b6\u6001\u680f\u4fe1\u53f7\u81ea\u5b9a\u4e49"),
@@ -9656,20 +9780,7 @@ private fun ControlCenterTopButtonsPage(back: () -> Unit) {
                                     }
                                     CONTROL_CENTER_TOP_BUTTONS_MODE_SOFT_GLASS -> {
                                         ParameterDpSlide(tr("顶部按钮背景圆形半径", "顶部按钮背景圆形半径"), geometry.softRadius, 0f..22f, 22f) { value -> updateGeometry(CcButtonGeometryParameter.SOFT_RADIUS, value) }
-                                        SwitchPreference(
-                                            title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"),
-                                            checked = state.useGlobal,
-                                            onCheckedChange = { value -> update { it.copy(useGlobal = value) } },
-                                        )
-                                        AnimatedVisibility(
-                                            visible = !state.useGlobal,
-                                            enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-                                            exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-                                        ) {
-                                            SoftGlassMaterialSliders(state.glass, includeBackdrop = true) { transform ->
-                                                update { it.copy(glass = transform(it.glass)) }
-                                            }
-                                        }
+                                        UnifiedSoftGlassLinkRow(SoftGlassSlot.CONTROL_CENTER_TOP_BUTTONS)
                                     }
                                 }
                             }
@@ -10740,14 +10851,7 @@ private fun LockscreenShortcutBackgroundPage(back: () -> Unit) {
                                     SwitchPreference(title = tr("显示高光", "显示高光"), checked = state.advancedHighlight, onCheckedChange = { value -> updateBackground { it.copy(advancedHighlight = value) } })
                                 }
                                 else -> Column {
-                                    SwitchPreference(title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"), checked = state.useGlobalGlass, onCheckedChange = { value -> updateBackground { it.copy(useGlobalGlass = value) } })
-                                    AnimatedVisibility(!state.useGlobalGlass, enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f), exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f)) {
-                                        Column {
-                                            SoftGlassMaterialSliders(state.glass) { transform ->
-                                                updateBackground { it.copy(glass = transform(it.glass)) }
-                                            }
-                                        }
-                                    }
+                                    UnifiedSoftGlassLinkRow(SoftGlassSlot.LOCKSCREEN_SHORTCUT)
                                 }
                             }
                         }
@@ -11390,20 +11494,7 @@ private fun LockscreenCapsule(
                         ) {
                             Column {
                                 SmallTitle(tr("锁屏胶囊柔光玻璃参数", "锁屏胶囊柔光玻璃参数"))
-                                SwitchPreference(
-                                    title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"),
-                                    checked = glassState.useGlobal,
-                                    onCheckedChange = { value -> updateGlass { it.copy(useGlobal = value) } },
-                                )
-                                AnimatedVisibility(
-                                    visible = !glassState.useGlobal,
-                                    enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-                                    exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-                                ) {
-                                    SoftGlassMaterialSliders(glassState.glass) { transform ->
-                                        updateGlass { it.copy(glass = transform(it.glass)) }
-                                    }
-                                }
+                                UnifiedSoftGlassLinkRow(SoftGlassSlot.LOCKSCREEN_CAPSULE)
                             }
                         }
                         }

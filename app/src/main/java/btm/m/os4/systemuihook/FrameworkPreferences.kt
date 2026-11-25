@@ -25,6 +25,7 @@ private const val KEY_FW_PIN_72H = "fw_disable_pin_verify_72h"
 private const val KEY_FW_DEVICE_NAME = "fw_disable_device_name_check"
 private const val KEY_FW_QUICK_SCREENSHOT = "fw_quick_screenshot"
 private const val KEY_FW_SCREENSHOT_ANYWHERE = "fw_screenshot_anywhere"
+private const val KEY_FW_BLOCK_CELLULAR_ON_WIFI = "fw_block_third_party_cellular_on_wifi"
 
 /** Value for [FrameworkPreferences.volumeSafeMode]. */
 internal const val VOLUME_SAFE_DEFAULT = 0
@@ -45,6 +46,7 @@ internal data class FrameworkPreferences(
     val disableDeviceNameCheck: Boolean = false,
     val quickScreenshot: Boolean = false,
     val screenshotAnywhere: Boolean = false,
+    val blockThirdPartyCellularOnWifi: Boolean = false,
 ) {
     fun normalized() = copy(volumeSafeMode = volumeSafeMode.coerceIn(0, VOLUME_SAFE_HEADSET_ONLY))
 }
@@ -63,6 +65,7 @@ internal fun readFrameworkPreferences(p: SharedPreferences) = FrameworkPreferenc
     disableDeviceNameCheck = p.getBoolean(KEY_FW_DEVICE_NAME, false),
     quickScreenshot = p.getBoolean(KEY_FW_QUICK_SCREENSHOT, false),
     screenshotAnywhere = p.getBoolean(KEY_FW_SCREENSHOT_ANYWHERE, false),
+    blockThirdPartyCellularOnWifi = p.getBoolean(KEY_FW_BLOCK_CELLULAR_ON_WIFI, false),
 ).normalized()
 
 internal class FrameworkPreferencesStore(context: Context) {
@@ -102,6 +105,7 @@ internal class FrameworkPreferencesStore(context: Context) {
             .putBoolean(KEY_FW_DEVICE_NAME, s.disableDeviceNameCheck)
             .putBoolean(KEY_FW_QUICK_SCREENSHOT, s.quickScreenshot)
             .putBoolean(KEY_FW_SCREENSHOT_ANYWHERE, s.screenshotAnywhere)
+            .putBoolean(KEY_FW_BLOCK_CELLULAR_ON_WIFI, s.blockThirdPartyCellularOnWifi)
             .apply()
     }
 }

@@ -236,27 +236,7 @@ internal fun SidebarGlassPage(back: () -> Unit) {
         AppList(padding, scroll, 28) {
             item {
                 Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
-                    SwitchPreference(
-                        title = tr("侧边栏柔光玻璃参数调整", "侧边栏柔光玻璃参数调整"),
-                        checked = settings.glass.enabled,
-                        onCheckedChange = { value -> update { it.copy(glass = it.glass.copy(enabled = value)) } },
-                    )
-                    PortalAppearanceVisibility(settings.glass.enabled) {
-                        SwitchPreference(
-                            title = tr("统一使用全局柔光玻璃参数", "统一使用全局柔光玻璃参数"),
-                            checked = settings.useGlobal,
-                            onCheckedChange = { value -> update { it.copy(useGlobal = value) } },
-                        )
-                    }
-                }
-            }
-            item {
-                PortalAppearanceVisibility(settings.glass.enabled && !settings.useGlobal) {
-                    Group(tr("外观调整", "外观调整")) {
-                        SoftGlassMaterialSliders(settings.glass, includeBackdrop = false) { transform ->
-                            update { it.copy(glass = transform(it.glass)) }
-                        }
-                    }
+                    UnifiedSoftGlassLinkRow(SoftGlassSlot.SIDEBAR)
                 }
             }
         }

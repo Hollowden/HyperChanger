@@ -828,15 +828,65 @@ class HyperSystemUiModule : XposedModule() {
             }
         }
         runCatching {
-            // Moved out of PhoneWindowManager into KeyGestureController on this platform.
+            // 澎湃 OS 4 上截图组合键延迟由三处共同控制：
+            // 1) KeyGestureController.getScreenshotChordLongPressDelay 与其合成桥接 -$$Nest$m...
+            // 2) KeyCombinationManager$TwoKeysCombinationRule.getKeyInterceptDelayMs (电源+音量减)
+            // 3) KeyCombinationManager.mSuppportThreeKeyCombination 为 true 时会额外 postDelayed 150ms
             val cls = loader.loadClass("com.android.server.input.KeyGestureController")
-            val target = cls.declaredMethods.firstOrNull {
-                it.name == "getScreenshotChordLongPressDelay" && it.parameterCount == 0
-            } ?: return@runCatching
-            hookDeoptimized(target)
-                .setExceptionMode(ExceptionMode.PROTECTIVE)
-                .setId("hyperchanger:fw-quick-screenshot")
-                .intercept { chain -> if (on { it.quickScreenshot }) 0L else chain.proceed() }
+            cls.declaredMethods.filter {
+                (it.name == "getScreenshotChordLongPressDelay" && it.parameterCount == 0) ||
+                    (it.name == "-\$\$Nest\$mgetScreenshotChordLongPressDelay" && it.parameterCount == 1)
+            }.forEachIndexed { idx, target ->
+                hookDeoptimized(target)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .setId("hyperchanger:fw-quick-screenshot-$idx")
+                    .intercept { chain -> if (on { it.quickScreenshot }) 0L else chain.proceed() }
+            }
+        }
+        runCatching {
+            // 消除小米 KeyCombinationManager 三键兼容带来的 150ms 固定延迟，实现按下电源+音量减即刻截屏
+            val kcmCls = loader.loadClass("com.android.server.input.KeyCombinationManager")
+            val threeKeyField = runCatching {
+                kcmCls.getDeclaredField("mSuppportThreeKeyCombination").apply { isAccessible = true }
+            }.getOrNull()
+            kcmCls.declaredMethods.filter {
+                it.name == "interceptKeyLocked" || it.name == "setSupportThreeKeyCombination"
+            }.forEachIndexed { idx, method ->
+                hookDeoptimized(method)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .setId("hyperchanger:fw-quick-screenshot-kcm-$idx")
+                    .intercept { chain ->
+                        if (on { it.quickScreenshot }) {
+                            if (method.name == "setSupportThreeKeyCombination" && method.parameterCount == 1) {
+                                return@intercept chain.proceed(arrayOf(false))
+                            }
+                            if (threeKeyField != null) {
+                                runCatching { threeKeyField.setBoolean(chain.thisObject, false) }
+                            }
+                        }
+                        chain.proceed()
+                    }
+            }
+            val ruleCls = loader.loadClass("com.android.server.input.KeyCombinationManager\$TwoKeysCombinationRule")
+            val k1Field = ruleCls.getDeclaredField("mKeyCode1").apply { isAccessible = true }
+            val k2Field = ruleCls.getDeclaredField("mKeyCode2").apply { isAccessible = true }
+            ruleCls.declaredMethods.filter {
+                it.name == "getKeyInterceptDelayMs" && it.parameterCount == 0
+            }.forEach { method ->
+                hookDeoptimized(method)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .setId("hyperchanger:fw-quick-screenshot-rule-delay")
+                    .intercept { chain ->
+                        if (on { it.quickScreenshot }) {
+                            val obj = chain.thisObject
+                            val k1 = runCatching { k1Field.getInt(obj) }.getOrDefault(0)
+                            val k2 = runCatching { k2Field.getInt(obj) }.getOrDefault(0)
+                            val isPowerVolDown = (k1 == 25 && k2 == 26) || (k1 == 26 && k2 == 25)
+                            if (isPowerVolDown) return@intercept 0L
+                        }
+                        chain.proceed()
+                    }
+            }
         }
         runCatching {
             val cls = loader.loadClass("com.android.server.wm.WindowState")
@@ -928,6 +978,11 @@ class HyperSystemUiModule : XposedModule() {
                             chain.proceed()
                         }
                 }
+        }
+        runCatching {
+            FrameworkCellularOnWifiGuard.install(this, loader, prefs)
+        }.onFailure { error ->
+            btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.WARN, TAG, "Could not install Wi-Fi cellular guard hook", error)
         }
         runCatching {
             // Clearing isSecureLocked only drops the surface flag; the capture path still filters
@@ -1180,6 +1235,12 @@ class HyperSystemUiModule : XposedModule() {
             return
         }
         if (param.packageName == SETTINGS_PACKAGE) {
+            runCatching {
+                othersHooks.installSettingsFloatingSearchHooks(param, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
+            }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.WARN, TAG, "Could not install Settings floating search", error) }
+            runCatching {
+                othersHooks.installSettingsTitleBarBlurHooks(param, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
+            }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.WARN, TAG, "Could not install Settings title bar gradient blur", error) }
             othersHooks.installHotspotTemperatureHooks(param, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
             runCatching {
                 othersHooks.installSettingsAdvancedColorStyleHook(param.defaultClassLoader, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
@@ -7475,6 +7536,59 @@ class HyperSystemUiModule : XposedModule() {
         classLoader: ClassLoader? = null,
     ) {
         val viewClass = View::class.java
+        val hostedInIosShade = view.tag == SHORTCUT_GLASS_TAG &&
+            btm.m.os4.systemuihook.newnotificationcenter.IosNotificationShortcutHost.isHosting() &&
+            generateSequence(view) { it.parent as? View }.any {
+                it is btm.m.os4.systemuihook.newnotificationcenter.IosNotificationShortcutHost
+            }
+        if (hostedInIosShade) {
+            // 通知中心托管期间：关闭父容器的跨窗采样，1:1 复刻通知中心「× 清除」按钮已验证可采样
+            // 通知中心壁纸的材质管线（真实 background Drawable + type=0 + pass=true + mode=1 + scaleRatio=0）。
+            (view.parent as? View)?.let { container ->
+                lockscreenBackdropContainers.remove(container)
+                runCatching {
+                    viewClass.getMethod("setPassWindowBlurEnabled", Boolean::class.javaPrimitiveType).invoke(container, false)
+                    viewClass.getMethod("setMiBackgroundBlurMode", Int::class.javaPrimitiveType).invoke(container, 0)
+                    viewClass.getMethod("disableMiBackgroundContainBelow", Boolean::class.javaPrimitiveType).invoke(container, false)
+                }
+            }
+            if (view.background == null) {
+                view.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.argb(1, 255, 255, 255))
+                }
+            }
+            viewClass.getMethod("clearMiBackgroundBlendColor").invoke(view)
+            runCatching {
+                viewClass.getMethod("setMiBackgroundBlurType", Int::class.javaPrimitiveType).invoke(view, 0)
+            }
+            viewClass.getMethod("setPassWindowBlurEnabled", Boolean::class.javaPrimitiveType).invoke(view, true)
+            viewClass.getMethod("setMiViewBlurMode", Int::class.javaPrimitiveType).invoke(view, 1)
+            viewClass.getMethod("setMiBackgroundBlurMode", Int::class.javaPrimitiveType).invoke(view, 1)
+            viewClass.getMethod("setMiBackgroundBlurRadius", Int::class.javaPrimitiveType).invoke(view, 80)
+            runCatching {
+                viewClass.getMethod("setMiGlassBlurRadius", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                    .invoke(view, 15, 30)
+            }
+            runCatching {
+                viewClass.getMethod("setMiBackgroundBlurScaleRatio", Float::class.javaPrimitiveType).invoke(view, 0f)
+                viewClass.getMethod("disableMiBackgroundContainBelow", Boolean::class.javaPrimitiveType).invoke(view, false)
+            }
+            viewClass.getMethod("addMiBackgroundBlendColor", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                .invoke(
+                    view,
+                    Color.argb(
+                        opacity.coerceIn(0, MAX_SHORTCUT_OPACITY) * 255 / MAX_SHORTCUT_OPACITY,
+                        Color.red(color), Color.green(color), Color.blue(color),
+                    ),
+                    SHORTCUT_GLASS_BLEND_MODE,
+                )
+            if (showHighlight) {
+                viewClass.getMethod("setMiBloomStroke", FloatArray::class.java)
+                    .invoke(view, SHORTCUT_BLOOM_STROKE_PARAMETERS)
+            }
+            return
+        }
         if (classLoader != null && (view.tag == SHORTCUT_GLASS_TAG || view.tag == LOCKSCREEN_CAPSULE_MATERIAL_TAG)) {
             // Match HyperMusicCover: the parent provides the wallpaper backdrop;
             // this child carries only the glass shape and blend colors.
@@ -7609,8 +7723,13 @@ class HyperSystemUiModule : XposedModule() {
             View::class.java.getMethod("setMiGlassBlurRadius", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                 .invoke(backdrop, softGlassBlur(smallRadius, glass.refractionBlur), softGlassBlur(bigRadius, glass.refractionBlur))
         }
-        // Scale the native zoom amount, rather than using a full-unit texture scale.
-        setOwnedBackdropScale(view, softGlassScale(0.075f, glass.backgroundScale))
+        val hostedInIosShade = view.tag == SHORTCUT_GLASS_TAG &&
+            btm.m.os4.systemuihook.newnotificationcenter.IosNotificationShortcutHost.isHosting() &&
+            generateSequence(view as View) { it.parent as? View }.any {
+                it is btm.m.os4.systemuihook.newnotificationcenter.IosNotificationShortcutHost
+            }
+        // 通知中心托管期间不额外施加 0.075 缩放（与通知中心「× 清除」按钮一致，保持 0f）
+        setOwnedBackdropScale(view, if (hostedInIosShade) 0f else softGlassScale(0.075f, glass.backgroundScale))
         applySystemGlassMaterial(
             view = view,
             classLoader = classLoader,

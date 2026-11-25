@@ -8,6 +8,7 @@ import io.github.libxposed.service.XposedService
 internal const val KEY_STATUS_BAR_ICON_SIZE_PERCENT = "status_bar_icon_size_percent"
 internal const val KEY_STATUS_BAR_BATTERY_PERCENT_MODE = "status_bar_battery_percent_mode"
 internal const val KEY_CONTROL_CENTER_BATTERY_PERCENT_MODE = "control_center_battery_percent_mode"
+internal const val KEY_STATUS_BAR_POWER_TEMP_MODE = "status_bar_power_temp_mode"
 internal const val STATUS_BAR_ICON_SIZE_PERCENT_DEFAULT = 0f
 internal val STATUS_BAR_ICON_SIZE_PERCENT_RANGE = -100f..100f
 
@@ -15,6 +16,7 @@ internal data class StatusBarAdjustmentSettings(
     val iconSizePercent: Float = STATUS_BAR_ICON_SIZE_PERCENT_DEFAULT,
     val statusBarBatteryPercentMode: Int = 0,
     val controlCenterBatteryPercentMode: Int = 0,
+    val statusBarPowerTempMode: Int = STATUS_BAR_POWER_TEMP_OFF,
 )
 
 internal fun readStatusBarAdjustmentSettings(preferences: SharedPreferences) = StatusBarAdjustmentSettings(
@@ -24,6 +26,8 @@ internal fun readStatusBarAdjustmentSettings(preferences: SharedPreferences) = S
     ).coerceIn(STATUS_BAR_ICON_SIZE_PERCENT_RANGE),
     statusBarBatteryPercentMode = preferences.getInt(KEY_STATUS_BAR_BATTERY_PERCENT_MODE, 0).coerceIn(0, 3),
     controlCenterBatteryPercentMode = preferences.getInt(KEY_CONTROL_CENTER_BATTERY_PERCENT_MODE, 0).coerceIn(0, 3),
+    statusBarPowerTempMode = preferences.getInt(KEY_STATUS_BAR_POWER_TEMP_MODE, STATUS_BAR_POWER_TEMP_OFF)
+        .coerceIn(STATUS_BAR_POWER_TEMP_OFF, STATUS_BAR_POWER_TEMP_ABOVE_CLOCK),
 )
 
 internal class StatusBarAdjustmentSettingsStore(context: Context) {
@@ -35,7 +39,8 @@ internal class StatusBarAdjustmentSettingsStore(context: Context) {
         val remote = service.getRemotePreferences(REMOTE_PREFERENCE_GROUP)
         settings = if (remote.contains(KEY_STATUS_BAR_ICON_SIZE_PERCENT) ||
             remote.contains(KEY_STATUS_BAR_BATTERY_PERCENT_MODE) ||
-            remote.contains(KEY_CONTROL_CENTER_BATTERY_PERCENT_MODE)
+            remote.contains(KEY_CONTROL_CENTER_BATTERY_PERCENT_MODE) ||
+            remote.contains(KEY_STATUS_BAR_POWER_TEMP_MODE)
         ) readStatusBarAdjustmentSettings(remote) else readStatusBarAdjustmentSettings(local)
         write(local)
         write(remote)
@@ -49,6 +54,10 @@ internal class StatusBarAdjustmentSettingsStore(context: Context) {
                 iconSizePercent = it.iconSizePercent.coerceIn(STATUS_BAR_ICON_SIZE_PERCENT_RANGE),
                 statusBarBatteryPercentMode = it.statusBarBatteryPercentMode.coerceIn(0, 3),
                 controlCenterBatteryPercentMode = it.controlCenterBatteryPercentMode.coerceIn(0, 3),
+                statusBarPowerTempMode = it.statusBarPowerTempMode.coerceIn(
+                    STATUS_BAR_POWER_TEMP_OFF,
+                    STATUS_BAR_POWER_TEMP_ABOVE_CLOCK,
+                ),
             )
         }
         write(local)
@@ -60,6 +69,7 @@ internal class StatusBarAdjustmentSettingsStore(context: Context) {
             .putFloat(KEY_STATUS_BAR_ICON_SIZE_PERCENT, settings.iconSizePercent)
             .putInt(KEY_STATUS_BAR_BATTERY_PERCENT_MODE, settings.statusBarBatteryPercentMode)
             .putInt(KEY_CONTROL_CENTER_BATTERY_PERCENT_MODE, settings.controlCenterBatteryPercentMode)
+            .putInt(KEY_STATUS_BAR_POWER_TEMP_MODE, settings.statusBarPowerTempMode)
             .apply()
     }
 }

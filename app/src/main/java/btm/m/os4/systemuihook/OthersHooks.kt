@@ -70,6 +70,14 @@ internal class OthersHooks(
     private val htmlViewerHooks = HtmlViewerHooks(module)
     private val joyoseHooks = JoyoseHooks(module)
     private val preinstalledPrivacyHooks = PreinstalledPrivacyHooks(module)
+    private val settingsFloatingSearchHooks = SettingsFloatingSearchHooks(module, hookDeoptimized)
+    private val settingsTitleBarBlurHooks = SettingsTitleBarBlurHooks(module, hookDeoptimized)
+
+    fun installSettingsFloatingSearchHooks(param: PackageLoadedParam, preferences: SharedPreferences) =
+        settingsFloatingSearchHooks.install(param, preferences)
+
+    fun installSettingsTitleBarBlurHooks(param: PackageLoadedParam, preferences: SharedPreferences) =
+        settingsTitleBarBlurHooks.install(param, preferences)
 
     fun installPortalHooks(classLoader: ClassLoader, preferences: SharedPreferences) =
         portalHooks.install(classLoader, preferences)

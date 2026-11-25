@@ -2,27 +2,20 @@
 // Copyright 2026 btm_m
 package btm.m.os4.systemuihook
 
+import android.content.res.Configuration
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewTreeObserver
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import kotlin.math.roundToInt
 
 internal class SettingsPreferenceCardOpacitySession(
     val root: View,
     private val devicePage: Boolean,
 ) {
-    private val recyclerId = root.resources.getIdentifier(
-        if (devicePage) "recycler_view" else "scroll_headers",
-        "id",
-        root.context.packageName,
-    )
-    private val decorationClass = if (devicePage) {
-        "miuix.preference.PreferenceFragment\$FrameDecoration"
-    } else {
-        "miuix.recyclerview.card.CardItemDecoration"
-    }
-    private val drawableFieldName = if (devicePage) "mCardGroupBackground" else "mGroupDrawable"
+    private val homeRecyclerId = root.resources.getIdentifier("scroll_headers", "id", root.context.packageName)
+    private val subRecyclerId = root.resources.getIdentifier("recycler_view", "id", root.context.packageName)
     private val scopeId = if (devicePage) {
         root.resources.getIdentifier("prefs_container", "id", root.context.packageName)
     } else {
@@ -50,9 +43,21 @@ internal class SettingsPreferenceCardOpacitySession(
         applyOpacity()
     }
 
+    private fun isLightMode(): Boolean =
+        root.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES
+
+    private fun findRecycler(): View? {
+        if (devicePage) {
+            val scope = root.findViewById<View>(scopeId)
+            return scope?.findViewById(subRecyclerId)
+        }
+        // 兼容设置主页（scroll_headers）与各设置子页（recycler_view）
+        return (if (homeRecyclerId != 0) root.findViewById<View>(homeRecyclerId) else null)
+            ?: (if (subRecyclerId != 0) root.findViewById<View>(subRecyclerId) else null)
+    }
+
     private fun applyOpacity() {
-        val scope = if (devicePage) root.findViewById<View>(scopeId) else root
-        val list = scope?.findViewById<View>(recyclerId)
+        val list = findRecycler()
         if (list !== recycler) {
             restore()
             recycler = list
@@ -69,7 +74,14 @@ internal class SettingsPreferenceCardOpacitySession(
             }
         }
         val surface = background ?: return
-        val alpha = originalAlpha * opacity / 100
+        // 白天模式下 MIUI 原生纯白卡片即使 55% 不透明度也会形成沉重大白块；
+        // 对非「我的设备」的设置页按 0.28x 轻透收敛，保留温和分组感同时呈现类似深色模式的通透背景视觉。
+        val effectiveOpacity = if (!devicePage && isLightMode() && opacity < 100) {
+            (opacity * 0.28f).roundToInt().coerceIn(0, 100)
+        } else {
+            opacity
+        }
+        val alpha = originalAlpha * effectiveOpacity / 100
         if (surface.alpha != alpha) {
             surface.alpha = alpha
             list?.invalidate()
@@ -80,10 +92,19 @@ internal class SettingsPreferenceCardOpacitySession(
         val count = decorationCount?.invoke(list) as? Int ?: return null
         for (index in 0 until count) {
             val decoration = decorationAt?.invoke(list, index) ?: continue
-            if (decoration.javaClass.name != decorationClass) continue
-            val field = backgroundField ?: decoration.javaClass.getDeclaredField(drawableFieldName).apply {
-                isAccessible = true
-                backgroundField = this
+            val clsName = decoration.javaClass.name
+            val fieldName = when (clsName) {
+                "miuix.recyclerview.card.CardItemDecoration" -> "mGroupDrawable"
+                "miuix.preference.PreferenceFragment\$FrameDecoration" -> "mCardGroupBackground"
+                else -> continue
+            }
+            val field = if (backgroundField?.declaringClass == decoration.javaClass) {
+                backgroundField!!
+            } else {
+                decoration.javaClass.getDeclaredField(fieldName).apply {
+                    isAccessible = true
+                    backgroundField = this
+                }
             }
             return field.get(decoration) as? Drawable
         }

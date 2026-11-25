@@ -822,6 +822,13 @@ object SettingsAppearanceApplier {
             // Only its stock children are hidden, so the imported logo and card are
             // the sole visible content while all presenter references stay valid.
             host.background = null
+            host.clipChildren = false
+            host.clipToPadding = false
+            (host.parent as? ViewGroup)?.let { p ->
+                p.clipChildren = false
+                p.clipToPadding = false
+            }
+            host.minimumHeight = SettingsAppearanceApplier.tutorialDp(context, 211)
             view.visibility = View.VISIBLE
             originalChildVisibility.forEach { (child, _) -> child.visibility = View.INVISIBLE }
             attachAnimationSync()
@@ -879,6 +886,14 @@ object SettingsAppearanceApplier {
 
         fun enforce(context: android.content.Context) {
             host.background = null
+            // 关闭宿主及父级裁剪并保障最小高度，防止顶部圆角版本卡片在首次测量或滚动回弹时顶边被切掉一块
+            host.clipChildren = false
+            host.clipToPadding = false
+            (host.parent as? ViewGroup)?.let { p ->
+                p.clipChildren = false
+                p.clipToPadding = false
+            }
+            host.minimumHeight = SettingsAppearanceApplier.tutorialDp(context, 274)
             view.visibility = View.VISIBLE
             view.attach()
             originalChildVisibility.forEach { (child, _) -> child.visibility = View.INVISIBLE }
@@ -887,6 +902,7 @@ object SettingsAppearanceApplier {
                 attached = true
             }
             sync()
+            view.invalidateOutline()
             val original = spacerLayoutParams ?: return
             spacer?.layoutParams = SettingsAppearanceApplier.compactVersionCardSpacer(original, SettingsAppearanceApplier.tutorialDp(context, 274))
         }

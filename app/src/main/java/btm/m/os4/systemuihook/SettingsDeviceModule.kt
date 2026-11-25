@@ -1165,9 +1165,9 @@ class SettingsDeviceModule : XposedModule() {
     private fun installActivityAppearanceHooks(classLoader: ClassLoader, homeEnabled: Boolean, deviceEnabled: Boolean) {
         val activityTypes = buildList {
             if (homeEnabled) add(MIUI_SETTINGS)
-            if (deviceEnabled) add(SUB_SETTINGS)
+            if (homeEnabled || deviceEnabled) add(SUB_SETTINGS)
             if (deviceEnabled) add(MY_DEVICE_INFO_ACTIVITY)
-        }
+        }.distinct()
         activityTypes.forEach { className ->
             runCatching {
                 val type = classLoader.loadClass(className)
@@ -1185,17 +1185,23 @@ class SettingsDeviceModule : XposedModule() {
                             val activity = chain.thisObject as? Activity
                             if (activity?.javaClass?.name == className) {
                                 when (method.name) {
-                                "onCreate", "onResume" -> scheduleAppearance(activity, className)
-                                    "onStop" -> if (className == MIUI_SETTINGS) {
-                                        SettingsAppearanceApplier.stop(activity)
-                                    } else {
-                                        SettingsAppearanceApplier.stopDevice(activity)
+                                    "onCreate", "onResume" -> scheduleAppearance(activity, className, homeEnabled)
+                                    "onStop" -> {
+                                        if (className == MIUI_SETTINGS || className == SUB_SETTINGS) {
+                                            SettingsAppearanceApplier.stop(activity)
+                                        }
+                                        if (className != MIUI_SETTINGS) {
+                                            SettingsAppearanceApplier.stopDevice(activity)
+                                        }
                                     }
-                                    "onDestroy" -> if (className == MIUI_SETTINGS) {
-                                        SettingsAppearanceApplier.destroy(activity)
-                                    } else {
-                                        SettingsAppearanceApplier.destroyDevice(activity)
-                                        SettingsAppearanceApplier.destroyLogo(activity)
+                                    "onDestroy" -> {
+                                        if (className == MIUI_SETTINGS || className == SUB_SETTINGS) {
+                                            SettingsAppearanceApplier.destroy(activity)
+                                        }
+                                        if (className != MIUI_SETTINGS) {
+                                            SettingsAppearanceApplier.destroyDevice(activity)
+                                            SettingsAppearanceApplier.destroyLogo(activity)
+                                        }
                                     }
                                 }
                             }
@@ -1208,10 +1214,36 @@ class SettingsDeviceModule : XposedModule() {
         }
     }
 
-    private fun scheduleAppearance(activity: Activity, className: String) {
+    private fun shouldApplyHomeToSubSettings(activity: Activity): Boolean {
+        // 1. 「我的设备」相关页面继续保留独立的自定义设备背景，不覆盖
+        val bgEffectId = activity.resources.getIdentifier("bgEffectView", "id", activity.packageName)
+        if (bgEffectId != 0 && activity.findViewById<View>(bgEffectId) != null) return false
+        val fragment = activity.intent?.getStringExtra(":settings:show_fragment")?.lowercase().orEmpty()
+        val action = activity.intent?.action?.lowercase().orEmpty()
+        val blockedKeywords = listOf(
+            // 我的设备独立背景
+            "mydevice", "deviceinfo", "devicedetail",
+            // Google / GMS / 原生系统服务页（保留原生外观便于辨识）
+            "google", "gms", "play", "healthconnect", "safetycenter", "wellbeing", "autofill", "credential",
+            // 安全/密码/生物识别/色彩与预览敏感页（避免遮挡或干扰校准）
+            "password", "lockgeneric", "choose_lock", "chooselock", "confirmlock", "pin", "pattern",
+            "biometric", "fingerprint", "face", "keyguard", "screen_color", "screencolor", "displaycolor",
+            "calibration", "wallpaper", "theme", "font", "camera", "privacy_protection",
+        )
+        if (blockedKeywords.any { it in fragment || it in action }) return false
+        // 仅对小米设置自身子页生效（fragment 为空或以 com.android.settings / com.miui 开头）
+        if (fragment.isNotEmpty() && !fragment.startsWith("com.android.settings") && !fragment.startsWith("com.miui")) {
+            return false
+        }
+        return true
+    }
+
+    private fun scheduleAppearance(activity: Activity, className: String, homeEnabled: Boolean) {
         val decor = activity.window?.decorView ?: return
         val apply = {
             if (className == MIUI_SETTINGS) {
+                SettingsAppearanceApplier.applyHome(activity)
+            } else if (className == SUB_SETTINGS && homeEnabled && shouldApplyHomeToSubSettings(activity)) {
                 SettingsAppearanceApplier.applyHome(activity)
             }
         }

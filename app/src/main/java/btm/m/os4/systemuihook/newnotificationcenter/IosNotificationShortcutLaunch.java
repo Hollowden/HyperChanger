@@ -76,6 +76,21 @@ final class IosNotificationShortcutLaunch {
 
     void cancel() { finish(false); }
 
+    /** 通知中心长按松手直接启动快捷方式：复用系统原生意图与权限链路，并在拉起页面后收起通知中心。 */
+    void launchDirect(boolean isLeft) {
+        if (finishing) return;
+        begin();
+        attempted = true;
+        try {
+            Xp.callMethod(manager, "setOccludedMovedShortcut", isLeft);
+            launched = Boolean.TRUE.equals(Xp.callMethod(manager, "startShortcutActivity"));
+        } catch (Throwable error) {
+            Xp.log("[IOSShade] direct shortcut launch failed: " + error);
+            launched = false;
+        }
+        finish(launched);
+    }
+
     private void startActivity() {
         if (finishing || attempted) return;
         attempted = true;

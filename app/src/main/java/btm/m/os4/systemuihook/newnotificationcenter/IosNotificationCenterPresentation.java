@@ -610,9 +610,11 @@ public final class IosNotificationCenterPresentation {
                 ? shortcutNotificationBottomOffsetDp : notificationBottomOffsetDp;
         float offset = offsetDp * view.getResources().getDisplayMetrics().density;
         if (notificationShortcutsEnabled && !isLandscapePanel()) {
-            // The shortcut slider is an adjustment around the native shortcut area. Keep that
-            // area reserved, then apply the signed user offset on top of it.
-            offset += IosNotificationShortcutHost.bottomSpace(panel);
+            // 预留快捷按钮自身高度 + 10dp 呼吸间隙，避免静止态最底层通知贴死按钮或被硬切半截
+            float shortcutSpace = IosNotificationShortcutHost.bottomSpace(panel);
+            if (shortcutSpace > 0f) {
+                offset += shortcutSpace + 10f * view.getResources().getDisplayMetrics().density;
+            }
         }
         if (isLandscapePanel()) {
             // Landscape navigation bars are usually on the side. Reserve only a small
@@ -626,6 +628,10 @@ public final class IosNotificationCenterPresentation {
     static float viewportBottomForDraw(View view) {
         float bottom = viewportBottom(view);
         if (view == transformedStack) {
+            // 保持静止态在通知下限处裁剪（彻底挡住下方原生清除按钮不露头）；
+            // 仅在弹性下拉期间同步补回列表自身的向下位移，避免最底端卡片下拉时被硬切半截。
+            float elastic = IosShadeElastic.currentOffset();
+            bottom += elastic;
             bottom -= view.getTranslationY() - stackBaseTranslationY;
         }
         return Math.max(0f, bottom);

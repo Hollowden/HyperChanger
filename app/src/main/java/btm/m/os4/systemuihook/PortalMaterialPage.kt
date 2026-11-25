@@ -36,26 +36,14 @@ internal fun PortalMaterialPage(back: () -> Unit) {
                         onSelectedIndexChange = { save(settings.copy(materialMode = it)) },
                     )
                     PortalAppearanceVisibility(settings.materialMode == PORTAL_MATERIAL_SOFT_GLASS) {
-                        SwitchPreference(
-                            title = tr("使用全局柔光玻璃参数", "使用全局柔光玻璃参数"),
-                            checked = settings.useGlobalGlass,
-                            onCheckedChange = { save(settings.copy(useGlobalGlass = it)) },
-                        )
+                        UnifiedSoftGlassLinkRow(SoftGlassSlot.PORTAL)
                     }
                 }
             }
             item {
-                PortalAppearanceVisibility(settings.materialMode != PORTAL_MATERIAL_DEFAULT &&
-                    (settings.materialMode != PORTAL_MATERIAL_SOFT_GLASS || !settings.useGlobalGlass)) {
+                PortalAppearanceVisibility(settings.materialMode == PORTAL_MATERIAL_ADVANCED) {
                     Group(tr("材质参数调整", "材质参数调整")) {
-                        PortalAppearanceVisibility(settings.materialMode == PORTAL_MATERIAL_ADVANCED) {
-                            PortalAdvancedMaterialControls(settings, ::save)
-                        }
-                        PortalAppearanceVisibility(settings.materialMode == PORTAL_MATERIAL_SOFT_GLASS && !settings.useGlobalGlass) {
-                            SoftGlassMaterialSliders(settings.glass, includeBackdrop = false) { transform ->
-                                save(settings.copy(glass = transform(settings.glass).normalized()))
-                            }
-                        }
+                        PortalAdvancedMaterialControls(settings, ::save)
                     }
                 }
             }

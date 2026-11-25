@@ -55,7 +55,10 @@ public final class IosShadeMaterial {
     private static final WeakHashMap<Object, Boolean> SCANNED_OWNERS = new WeakHashMap<>();
     private static final WeakHashMap<View, int[]> GLASS_REQUESTS = new WeakHashMap<>();
     private static final WeakHashMap<View, int[]> SAVED_GLASS = new WeakHashMap<>();
+    private static final WeakHashMap<View, android.graphics.drawable.Drawable> SAVED_SHORTCUT_BG =
+            new WeakHashMap<>();
     private static Method glassRadius;
+    private static Method setScaleRatio;
     private static int glassSmallRadius;
     private static int glassBigRadius;
     private static final ThreadLocal<Boolean> WRITING = new ThreadLocal<>();
@@ -63,6 +66,10 @@ public final class IosShadeMaterial {
     private static ViewGroup root;
     private static View clockRoot;
     private static boolean clockRegistered;
+    private static View shortcutRoot;
+    private static boolean shortcutRegistered;
+    private static final String SHORTCUT_GLASS_TAG =
+            btm.m.os4.systemuihook.LockscreenShortcutGlassOwnership.TAG;
     private static ViewTreeObserver observer;
     private static boolean loggedFailure;
     private static long lastLayoutScanUptime;
@@ -126,7 +133,7 @@ public final class IosShadeMaterial {
                             if (slot == 4 && isContainmentSurface(view)) {
                                 CONTAIN_REQUESTS.put(view, (Boolean) requested);
                             }
-                            if (!active || (!target(view) && !(slot == 4 && isClock(view)))
+                            if (!active || (!target(view) && !(slot == 4 && (isClock(view) || isInShortcutRoot(view))))
                                     || view.getRootView() != root) return chain.proceed();
                             Object[] saved = remember(view);
                             saved[slot] = requested;
@@ -136,6 +143,10 @@ public final class IosShadeMaterial {
                 Xp.log("[IOSShade] material API unavailable: " + SETTERS[slot] + ": " + error);
             }
         }
+        try {
+            setScaleRatio = View.class.getDeclaredMethod("setMiBackgroundBlurScaleRatio", float.class);
+            setScaleRatio.setAccessible(true);
+        } catch (Throwable ignored) {}
         // New or rebound rows need their local blur even after the opening edge has passed.
         try {
             Method setViewBlur = View.class.getDeclaredMethod("setMiViewBlurMode", int.class);
@@ -172,6 +183,124 @@ public final class IosShadeMaterial {
         if (active && view != null) {
             scanClock(view);
             clockRegistered = true;
+        }
+    }
+
+    /** 将借用到通知中心的快捷按钮子树纳入本地壁纸采样，清除锁屏态的 setMiBlurWinType(1) 跨窗穿透。 */
+    public static void registerShortcutRoot(View view) {
+        if (view == null) return;
+        if (view == shortcutRoot && shortcutRegistered && active) return;
+        shortcutRoot = view;
+        if (active) {
+            scanShortcuts(view);
+            shortcutRegistered = true;
+        }
+    }
+
+    /** 快捷按钮归还给锁屏前，还原其原有模糊属性，避免影响锁屏壁纸渲染。 */
+    public static void unregisterShortcutRoot(View view) {
+        if (view == null || (shortcutRoot != null && shortcutRoot != view)) return;
+        View targetRoot = shortcutRoot != null ? shortcutRoot : view;
+        shortcutRoot = null;
+        shortcutRegistered = false;
+        WRITING.set(true);
+        try {
+            for (Map.Entry<View, int[]> entry : new ArrayList<>(SAVED_GLASS.entrySet())) {
+                View candidate = entry.getKey();
+                if (candidate == null || !isDescendantOf(candidate, targetRoot)) continue;
+                SAVED_GLASS.remove(candidate);
+                if (glassRadius == null) continue;
+                try {
+                    int[] requested = entry.getValue();
+                    glassRadius.invoke(candidate, requested[0], requested[1]);
+                } catch (Throwable ignored) {}
+            }
+            for (Map.Entry<View, Object[]> entry : new ArrayList<>(SAVED.entrySet())) {
+                View candidate = entry.getKey();
+                if (candidate == null || !isDescendantOf(candidate, targetRoot)) continue;
+                Object[] values = entry.getValue();
+                SAVED.remove(candidate);
+                for (int slot : RESTORE_ORDER) {
+                    if (METHODS[slot] == null || values[slot] == null) continue;
+                    try {
+                        METHODS[slot].invoke(candidate, values[slot]);
+                    } catch (Throwable ignored) {}
+                }
+            }
+            for (Map.Entry<View, android.graphics.drawable.Drawable> entry : new ArrayList<>(SAVED_SHORTCUT_BG.entrySet())) {
+                View candidate = entry.getKey();
+                if (candidate == null || !isDescendantOf(candidate, targetRoot)) continue;
+                SAVED_SHORTCUT_BG.remove(candidate);
+                try {
+                    candidate.setBackground(entry.getValue());
+                } catch (Throwable ignored) {}
+            }
+        } finally {
+            WRITING.remove();
+        }
+    }
+
+    private static boolean isDescendantOf(View view, View ancestor) {
+        if (ancestor == null) return false;
+        for (View cursor = view; cursor != null; ) {
+            if (cursor == ancestor) return true;
+            cursor = cursor.getParent() instanceof View ? (View) cursor.getParent() : null;
+        }
+        return false;
+    }
+
+    private static boolean isInShortcutRoot(View view) {
+        return isDescendantOf(view, shortcutRoot);
+    }
+
+    /** 快捷按钮的真正玻璃渲染层（带 SHORTCUT_GLASS_TAG 的子 View）需要自带窗口内本地采样器。 */
+    private static boolean isShortcutGlassLayer(View view) {
+        return view != null && isInShortcutRoot(view) && SHORTCUT_GLASS_TAG.equals(view.getTag());
+    }
+
+    private static boolean hasShortcutGlassChild(View view) {
+        if (!(view instanceof ViewGroup)) return false;
+        ViewGroup group = (ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            if (SHORTCUT_GLASS_TAG.equals(group.getChildAt(i).getTag())) return true;
+        }
+        return false;
+    }
+
+    private static boolean isShortcutProvider(View view) {
+        if (view == null || !isInShortcutRoot(view)) return false;
+        if (SHORTCUT_GLASS_TAG.equals(view.getTag())) return true;
+        if (hasShortcutGlassChild(view)) return true;
+        try {
+            if (READERS[0] != null) {
+                Object mode = READERS[0].invoke(view);
+                if (mode instanceof Number && ((Number) mode).intValue() != 0) return true;
+            }
+            if (READERS[3] != null && Boolean.TRUE.equals(READERS[3].invoke(view))) return true;
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private static void scanShortcuts(View view) {
+        if (view == null) return;
+        if (isShortcutProvider(view)) {
+            if (!SAVED.containsKey(view)) apply(view);
+        } else if (METHODS[4] != null && !SAVED.containsKey(view)) {
+            Object[] saved = new Object[SETTERS.length];
+            try {
+                if (READERS[4] != null) saved[4] = !(Boolean) READERS[4].invoke(view);
+                if (saved[4] != null) SAVED.put(view, saved);
+                WRITING.set(true);
+                METHODS[4].invoke(view, false);
+            } catch (Throwable ignored) {
+            } finally {
+                WRITING.remove();
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) scanShortcuts(group.getChildAt(i));
         }
     }
 
@@ -264,7 +393,8 @@ public final class IosShadeMaterial {
     }
 
     private static boolean isWallpaperSurface(View view) {
-        return isPanel(view) || isDismissView(view) || isGroupCollapseView(view) || isClock(view);
+        return isPanel(view) || isDismissView(view) || isGroupCollapseView(view)
+                || isClock(view) || isInShortcutRoot(view);
     }
 
     private static boolean isContainmentSurface(View view) {
@@ -275,7 +405,8 @@ public final class IosShadeMaterial {
         String name = view.getClass().getName();
         return isPanel(view) || name.endsWith(".NotificationBackgroundView")
                 || name.equals("com.miui.systemui.widget.CircleAndTickAnimView")
-                || isGroupCollapseView(view) || MEDIA.containsKey(view);
+                || isGroupCollapseView(view) || MEDIA.containsKey(view)
+                || isShortcutProvider(view);
     }
 
     public static void registerMedia(View header) {
@@ -340,6 +471,10 @@ public final class IosShadeMaterial {
             scanClock(view);
             return;
         }
+        if (view == shortcutRoot) {
+            scanShortcuts(view);
+            return;
+        }
         if (view.getClass().getName().equals(
                 "com.android.systemui.statusbar.notification.mediacontrol.MiuiMediaHeaderView")) registerMedia(view);
         if (target(view) && view.isShown() && !SAVED.containsKey(view)) apply(view);
@@ -372,15 +507,17 @@ public final class IosShadeMaterial {
 
     private static Object wanted(View view, int slot, Object[] saved) {
         switch (slot) {
-            case 0: return 1; // A blur owned by this surface instead of the app's window blur.
-            case 1: return 1;
+            case 0: return (!isShortcutGlassLayer(view) && hasShortcutGlassChild(view)) ? 0 : 1;
+            // 快捷按钮玻璃层与「× 清除」按钮一致：使用 type=0 + pass=true + mode=1 采样同窗通知壁纸；
+            // 避免 type=1 + pass=false 导致采样为空（纯灰）。
+            case 1: return isShortcutGlassLayer(view) ? 0 : 1;
             case 2:
                 int radius = saved[2] instanceof Number ? ((Number) saved[2]).intValue() : 0;
                 // The panel reports no native radius of its own, so honouring that value verbatim
                 // left the iOS shade with refraction only: a transparent glass with no blur at all.
                 // Fall back to the row radius whenever the native value is missing.
                 return radius > 0 ? radius : 80;
-            case 3: return false; // One local source for scene-to-wallpaper compositing.
+            case 3: return isShortcutGlassLayer(view); // 玻璃层与「× 清除」按钮保持一致，父容器关 pass
             case 4: return false; // Include the wallpaper sibling below NotificationPanelView.
             default: throw new IllegalArgumentException();
         }
@@ -388,17 +525,50 @@ public final class IosShadeMaterial {
 
     private static void apply(View view) {
         Object[] saved = remember(view);
+        boolean shortcutProvider = isShortcutProvider(view);
         WRITING.set(true);
         try {
-            for (int slot = 0; slot < METHODS.length; slot++) {
-                // Unknown native values cannot be restored. The setter hook can still take
-                // ownership later, once the OEM supplies an explicit value for this slot.
-                if (saved[slot] == null) continue;
-                // The panel and clear-all control sample the wallpaper sibling below the
-                // notification surface. Notification rows keep their native containment.
-                if (slot == 4 && (!(isPanel(view) || isDismissView(view) || isGroupCollapseView(view))
-                        || saved[4] == null)) continue;
-                if (METHODS[slot] != null) METHODS[slot].invoke(view, wanted(view, slot, saved));
+            if (shortcutProvider) {
+                boolean isGlassChild = isShortcutGlassLayer(view);
+                boolean isGlassParent = !isGlassChild && hasShortcutGlassChild(view);
+                if (isGlassParent) {
+                    if (METHODS[3] != null) METHODS[3].invoke(view, false);
+                    if (METHODS[0] != null) METHODS[0].invoke(view, 0);
+                    if (METHODS[4] != null) METHODS[4].invoke(view, false);
+                } else {
+                    // 1:1 复刻通知中心右上角「× 清除」按钮已验证可采样通知中心壁纸的材质管线：
+                    // 1) 确保 View 拥有真实 background Drawable（1-alpha 透明底）而非仅 imageDrawable；
+                    // 2) setPassWindowBlurEnabled(true) + setMiBackgroundBlurMode(1) + setMiBackgroundBlurType(0)
+                    //    + setMiBackgroundBlurScaleRatio(0f) + disableMiBackgroundContainBelow(false)。
+                    if (isGlassChild && !SAVED_SHORTCUT_BG.containsKey(view)) {
+                        SAVED_SHORTCUT_BG.put(view, view.getBackground());
+                        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+                        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                        bg.setColor(android.graphics.Color.argb(1, 255, 255, 255));
+                        view.setBackground(bg);
+                    }
+                    if (METHODS[1] != null) METHODS[1].invoke(view, 0);
+                    if (METHODS[3] != null) METHODS[3].invoke(view, true);
+                    if (METHODS[0] != null) METHODS[0].invoke(view, 1);
+                    if (METHODS[2] != null) METHODS[2].invoke(view, 80);
+                    if (METHODS[4] != null) METHODS[4].invoke(view, false);
+                    if (setScaleRatio != null) setScaleRatio.invoke(view, 0f);
+                }
+                view.invalidate();
+            } else {
+                for (int slot = 0; slot < METHODS.length; slot++) {
+                    // The panel, clear-all, group controls and hosted shortcuts sample the wallpaper
+                    // sibling below the notification surface. Notification rows keep native containment.
+                    if (slot == 4) {
+                        if (!(isPanel(view) || isDismissView(view) || isGroupCollapseView(view) || isInShortcutRoot(view))) {
+                            continue;
+                        }
+                        if (saved[4] == null && !isInShortcutRoot(view)) continue;
+                    } else if (saved[slot] == null) {
+                        continue;
+                    }
+                    if (METHODS[slot] != null) METHODS[slot].invoke(view, wanted(view, slot, saved));
+                }
             }
             if (!isPanel(view) && glassRadius != null) {
                 // Native consumers inherit these radii from NotificationPanelView. Once a
@@ -424,6 +594,8 @@ public final class IosShadeMaterial {
         active = false;
         clockRoot = null;
         clockRegistered = false;
+        shortcutRoot = null;
+        shortcutRegistered = false;
         if (observer != null && observer.isAlive()) observer.removeOnGlobalLayoutListener(LAYOUT);
         observer = null;
         WRITING.set(true);
@@ -447,9 +619,17 @@ public final class IosShadeMaterial {
                     }
                 }
             }
+            for (Map.Entry<View, android.graphics.drawable.Drawable> entry : new ArrayList<>(SAVED_SHORTCUT_BG.entrySet())) {
+                View view = entry.getKey();
+                if (view == null) continue;
+                try {
+                    view.setBackground(entry.getValue());
+                } catch (Throwable ignored) {}
+            }
         } finally {
             SAVED.clear();
             SAVED_GLASS.clear();
+            SAVED_SHORTCUT_BG.clear();
             GROUP_RESOURCE_IDS.clear();
             WRITING.remove();
         }
