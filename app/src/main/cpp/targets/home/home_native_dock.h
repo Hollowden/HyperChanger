@@ -209,6 +209,36 @@ inline constexpr auto kModernPaddingShape = [] {
     shape[8] = 0xfd458a20;
     return shape;
 }();
+// 8.01.02.9259 将 Dock 水平边距缓存在静态字段 (#0x2a50)，冷启动首次初始化后
+// kModernPaddingShape 不再被调用。直接拦截各实时读取点的 Double 解箱指令，
+// 既消除冷启动竞态，又让调整边距后无需抢占初始化即可生效。
+inline constexpr std::array<uint32_t, 8> kModernPaddingReadShape{
+    0xf9403f40, 0xf9552800, 0xf9402370, 0x6b10001f,
+    0x54000081, 0x91405762, 0xf9445442, 0x94000000,
+};
+struct PaddingUnboxTarget {
+    size_t offset;
+    uint32_t word;
+    uint32_t reg;
+};
+inline std::optional<PaddingUnboxTarget> find_padding_unbox(std::span<const uint32_t> tail) {
+    uint32_t ptr_reg = 0;
+    const size_t limit = std::min<size_t>(tail.size(), 14);
+    for (size_t i = 0; i < limit; ++i) {
+        const uint32_t w = tail[i];
+        if (i == 0 && (w & 0xffffffe0u) == 0xaa0003e0u) {
+            ptr_reg = w & 31u;
+            continue;
+        }
+        if ((w & 0xffffffe0u) == (0xfc407000u | (ptr_reg << 5))) {
+            return PaddingUnboxTarget{i, w, w & 31u};
+        }
+        // 遇到分支或返回立即终止，防止跨基本块误匹配
+        const uint32_t top6 = w & 0xfc000000u;
+        if (top6 == 0x14000000u || top6 == 0x94000000u || w == 0xd65f03c0u) break;
+    }
+    return {};
+}
 template<size_t N> inline bool matches(std::span<const uint32_t> code, const std::array<uint32_t,N> &shape) {
     if(code.size()<N) return false;
     for(size_t i=0;i<N;++i) {

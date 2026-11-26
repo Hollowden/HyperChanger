@@ -8,5 +8,5 @@ internal data class HomeNativeDockSettings(
     val radius: Int = 30,
     val padding: Int = 25,
 ) {
-    fun normalized() = copy(radius = radius.coerceIn(0, 60), padding = padding.coerceIn(0, 150))
+    fun normalized() = copy(radius = radius.coerceIn(0, 60), padding = padding.coerceIn(0, 80))
 }

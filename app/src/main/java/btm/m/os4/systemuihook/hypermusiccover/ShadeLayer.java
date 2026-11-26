@@ -366,6 +366,8 @@ public final class ShadeLayer {
                         || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationCenterSettingsKt.KEY_IOS_NOTIFICATION_HIDE_CLEAR.equals(key)
                         || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_HEADER.equals(key)
                         || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_STYLE.equals(key)
+                        || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_SCALE.equals(key)
+                        || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_ICON_SCALE.equals(key)
                         || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_MATERIAL.equals(key)
                         || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_RADIUS.equals(key)
                         || btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_PURE_COLOR.equals(key)
@@ -412,6 +414,8 @@ public final class ShadeLayer {
         IosNotificationCenterPresentation.setNotificationHeaderSettings(
                 prefs.getBoolean(btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_HEADER, false),
                 prefs.getInt(btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_STYLE, 0),
+                prefs.getInt(btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_SCALE, 0),
+                prefs.getInt(btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_ICON_SCALE, 0),
                 prefs.getInt(btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_MATERIAL, 0),
                 prefs.getFloat(btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_RADIUS, 22f),
                 prefs.getInt(btm.m.os4.systemuihook.newnotificationcenter.IosNotificationHeaderSettingsKt.KEY_IOS_NOTIFICATION_CLEAR_PURE_COLOR, 0x66FFFFFF),

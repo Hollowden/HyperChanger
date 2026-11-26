@@ -99,7 +99,7 @@ class DockSettingsStore(private val context: Context) {
             .putInt(KEY_DOCK_GLASS_BACKDROP_BLUR, value.glassBackdropBlur.coerceIn(0, 100))
             .putInt(KEY_DOCK_GLASS_BLUR, value.glassBlur.coerceIn(0, 100))
             .putInt(KEY_DOCK_GLASS_SOFT_LIGHT, value.glassSoftLight.coerceIn(0, 100))
-            .putInt(KEY_DOCK_MARGIN, value.margin.coerceIn(0, 150))
+            .putInt(KEY_DOCK_MARGIN, value.margin.coerceIn(0, 80))
             .putInt(KEY_DOCK_HEIGHT, value.height.coerceIn(40, 300))
             .putInt(KEY_DOCK_BOTTOM, value.bottom.coerceIn(0, 150))
             .putInt(KEY_DOCK_RADIUS, value.radius.coerceIn(0, 60))
@@ -121,7 +121,7 @@ internal fun readDockSettings(prefs: SharedPreferences) = DockSettings(
         glassBackdropBlur = prefs.getInt(KEY_DOCK_GLASS_BACKDROP_BLUR, 40).coerceIn(0, 100),
         glassBlur = prefs.getInt(KEY_DOCK_GLASS_BLUR, 30).coerceIn(0, 100),
         glassSoftLight = prefs.getInt(KEY_DOCK_GLASS_SOFT_LIGHT, 50).coerceIn(0, 100),
-        margin = prefs.getInt(KEY_DOCK_MARGIN, 25).coerceIn(0, 150),
+        margin = prefs.getInt(KEY_DOCK_MARGIN, 25).coerceIn(0, 80),
         height = prefs.getInt(KEY_DOCK_HEIGHT, 150).coerceIn(40, 300),
         bottom = prefs.getInt(KEY_DOCK_BOTTOM, 15).coerceIn(0, 150),
         radius = prefs.getInt(KEY_DOCK_RADIUS, 30).coerceIn(0, 60),

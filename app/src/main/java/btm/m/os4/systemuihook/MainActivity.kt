@@ -4246,7 +4246,7 @@ private fun Desktop(
                         selectedIndex = settings.material,
                         onSelectedIndexChange = { value -> update { it.copy(material = value) } },
                     )
-                    ParameterIntSlide(tr("Dock 水平边距", "Dock 水平边距"), settings.margin, 0..150, " dp", defaultValue = 25) { value ->
+                    ParameterIntSlide(tr("Dock 水平边距", "Dock 水平边距"), settings.margin, 0..80, " dp", defaultValue = 25) { value ->
                         update { it.copy(margin = value) }
                     }
                     ParameterIntSlide(tr("Dock 圆角", "Dock 圆角"), settings.radius, 0..60, " dp", defaultValue = 30) { value ->
@@ -7080,6 +7080,22 @@ private fun IosNotificationHeaderSettingsPage(back: () -> Unit) {
                                 selectedIndex = settings.clearButtonStyle,
                                 onSelectedIndexChange = { value -> update { it.copy(clearButtonStyle = value) } },
                             )
+                            ParameterIntSlide(
+                                tr("iosNotificationClearScale", "清除按钮缩放"),
+                                settings.clearButtonScale,
+                                -30..80,
+                                "%",
+                                0,
+                            ) { value -> update { it.copy(clearButtonScale = value) } }
+                            if (settings.clearButtonStyle != 2) {
+                                ParameterIntSlide(
+                                    tr("iosNotificationClearIconScale", "清除按钮图标缩放"),
+                                    settings.clearButtonIconScale,
+                                    -30..100,
+                                    "%",
+                                    0,
+                                ) { value -> update { it.copy(clearButtonIconScale = value) } }
+                            }
                             OverlayDropdownPreference(
                                 title = tr("iosNotificationClearMaterial", "清除按钮背景"),
                                 items = listOf(

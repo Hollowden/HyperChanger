@@ -14,6 +14,8 @@ import io.github.libxposed.service.XposedService
 data class IosNotificationHeaderSettings(
     val enabled: Boolean = false,
     val clearButtonStyle: Int = 0, // 0 = icon and text, 1 = icon, 2 = text
+    val clearButtonScale: Int = 0,
+    val clearButtonIconScale: Int = 0,
     val clearButtonMaterial: Int = 0, // 0 = soft glass, 1 = advanced material, 2 = solid
     val clearButtonCornerRadius: Float = 22f,
     val clearButtonPureColor: Int = 0x66FFFFFF,
@@ -37,6 +39,8 @@ data class IosNotificationHeaderSettings(
 ) {
     fun normalized() = copy(
         clearButtonStyle = clearButtonStyle.coerceIn(0, 2),
+        clearButtonScale = clearButtonScale.coerceIn(-30, 80),
+        clearButtonIconScale = clearButtonIconScale.coerceIn(-30, 100),
         clearButtonMaterial = clearButtonMaterial.coerceIn(0, 2),
         clearButtonCornerRadius = clearButtonCornerRadius.coerceIn(0f, 60f),
         clearButtonAdvancedOpacity = clearButtonAdvancedOpacity.coerceIn(0, 100),
@@ -79,6 +83,8 @@ class IosNotificationHeaderSettingsStore(private val context: Context) {
     private fun SharedPreferences.read() = IosNotificationHeaderSettings(
         enabled = getBoolean(KEY_IOS_NOTIFICATION_HEADER, false),
         clearButtonStyle = getInt(KEY_IOS_NOTIFICATION_CLEAR_STYLE, 0),
+        clearButtonScale = getInt(KEY_IOS_NOTIFICATION_CLEAR_SCALE, 0),
+        clearButtonIconScale = getInt(KEY_IOS_NOTIFICATION_CLEAR_ICON_SCALE, 0),
         clearButtonMaterial = getInt(KEY_IOS_NOTIFICATION_CLEAR_MATERIAL, 0),
         clearButtonCornerRadius = getFloat(KEY_IOS_NOTIFICATION_CLEAR_RADIUS, 22f),
         clearButtonPureColor = getInt(KEY_IOS_NOTIFICATION_CLEAR_PURE_COLOR, 0x66FFFFFF),
@@ -107,6 +113,8 @@ class IosNotificationHeaderSettingsStore(private val context: Context) {
         p.edit()
             .putBoolean(KEY_IOS_NOTIFICATION_HEADER, v.enabled)
             .putInt(KEY_IOS_NOTIFICATION_CLEAR_STYLE, v.clearButtonStyle)
+            .putInt(KEY_IOS_NOTIFICATION_CLEAR_SCALE, v.clearButtonScale)
+            .putInt(KEY_IOS_NOTIFICATION_CLEAR_ICON_SCALE, v.clearButtonIconScale)
             .putInt(KEY_IOS_NOTIFICATION_CLEAR_MATERIAL, v.clearButtonMaterial)
             .putFloat(KEY_IOS_NOTIFICATION_CLEAR_RADIUS, v.clearButtonCornerRadius)
             .putInt(KEY_IOS_NOTIFICATION_CLEAR_PURE_COLOR, v.clearButtonPureColor)
@@ -170,6 +178,8 @@ class IosNotificationHeaderSettingsStore(private val context: Context) {
 
 const val KEY_IOS_NOTIFICATION_HEADER = "ios_notification_header"
 const val KEY_IOS_NOTIFICATION_CLEAR_STYLE = "ios_notification_clear_style"
+const val KEY_IOS_NOTIFICATION_CLEAR_SCALE = "ios_notification_clear_scale"
+const val KEY_IOS_NOTIFICATION_CLEAR_ICON_SCALE = "ios_notification_clear_icon_scale"
 const val KEY_IOS_NOTIFICATION_CLEAR_MATERIAL = "ios_notification_clear_material"
 const val KEY_IOS_NOTIFICATION_CLEAR_RADIUS = "ios_notification_clear_radius"
 const val KEY_IOS_NOTIFICATION_CLEAR_PURE_COLOR = "ios_notification_clear_pure_color"

@@ -145,6 +145,8 @@ public final class IosNotificationCenterPresentation {
     private static View nativeDismissView;
     private static WeakReference<Object> nativeDismissController = new WeakReference<>(null);
     private static int notificationClearStyle;
+    private static int notificationClearScale;
+    private static int notificationClearIconScale;
     private static int notificationClearMaterial;
     private static float notificationClearRadius = 22f;
     private static int notificationClearPureColor = 0x66FFFFFF;
@@ -465,7 +467,8 @@ public final class IosNotificationCenterPresentation {
         syncClearButton();
     }
 
-    public static void setNotificationHeaderSettings(boolean enabled, int style, int material,
+    public static void setNotificationHeaderSettings(boolean enabled, int style, int clearScale,
+            int clearIconScale, int material,
             float radius, int pureColor, int advancedColor, int advancedOpacity, int advancedBlur,
             boolean advancedHighlight, int softColor, int softOpacity, int softBackdropBlur,
             int softBlur, float softLuminance, int softRefraction, int contentMode,
@@ -473,6 +476,8 @@ public final class IosNotificationCenterPresentation {
             int textScale, int iconTextSpacing) {
         notificationHeaderEnabled = enabled;
         notificationClearStyle = Math.max(0, Math.min(2, style));
+        notificationClearScale = Math.max(-30, Math.min(80, clearScale));
+        notificationClearIconScale = Math.max(-30, Math.min(100, clearIconScale));
         notificationClearMaterial = Math.max(0, Math.min(2, material));
         notificationClearRadius = Math.max(0f, Math.min(60f, radius));
         notificationClearPureColor = pureColor;
@@ -1956,12 +1961,15 @@ public final class IosNotificationCenterPresentation {
 
         void applySettings() {
             applyLeftContent();
+            float buttonScale = (100 + notificationClearScale) / 100f;
+            float iconScale = (100 + notificationClearIconScale) / 100f;
             clear.applyStyle(notificationClearStyle,
-                    localized(getContext(), "清除", "Clear", "消去"), 13.5f * .92f);
+                    localized(getContext(), "清除", "Clear", "消去"),
+                    13.5f * .92f * buttonScale, iconScale);
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) clear.getLayoutParams();
             // Keep the transparent click target centered on the visible glass surface. The
             // surface can be resized independently, while its right edge stays fixed.
-            int glassHeight = notificationTextHeight();
+            int glassHeight = Math.max(dp(16), Math.round(notificationTextHeight() * buttonScale));
             int glassWidth;
             if (notificationClearStyle == 1) {
                 // Keep the icon-only control circular while enlarging its radius to 118%.
@@ -1971,7 +1979,7 @@ public final class IosNotificationCenterPresentation {
                 glassWidth = Math.round(glassHeight * clearButtonAspectRatio() * 1.22f);
             }
             params.width = glassWidth;
-            params.height = dpScaled(40);
+            params.height = Math.max(dpScaled(40), glassHeight);
             params.rightMargin = dp(23);
             clear.setLayoutParams(params);
             FrameLayout.LayoutParams surfaceParams = (FrameLayout.LayoutParams) glassSurface.getLayoutParams();
@@ -1980,7 +1988,7 @@ public final class IosNotificationCenterPresentation {
             surfaceParams.rightMargin = params.rightMargin;
             glassSurface.setLayoutParams(surfaceParams);
             float radiusScale = notificationClearStyle == 1 ? 1.18f : 1f;
-            background.setCornerRadius(dpFloat(notificationClearRadius * .92f * radiusScale));
+            background.setCornerRadius(dpFloat(notificationClearRadius * .92f * radiusScale * buttonScale));
             // HyperOS's backdrop renderer needs a drawable source, but the source must be
             // almost transparent so it can sample the wallpaper behind this control.
             int color = notificationClearMaterial == 2
@@ -2171,14 +2179,15 @@ public final class IosNotificationCenterPresentation {
             addView(label, new LayoutParams(-2, -1));
         }
 
-        void applyStyle(int style, String text, float textSizeSp) {
+        void applyStyle(int style, String text, float textSizeSp, float iconScale) {
             label.setText(text);
             label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, textSizeSp);
             boolean iconOnly = style == 1;
             boolean textOnly = style == 2;
             icon.setVisibility(textOnly ? GONE : VISIBLE);
             label.setVisibility(iconOnly ? GONE : VISIBLE);
-            int iconSize = Math.max(1, Math.round(label.getTextSize() * .95f));
+            float baseIconRatio = iconOnly ? 1.15f : .98f;
+            int iconSize = Math.max(1, Math.round(label.getTextSize() * baseIconRatio * iconScale));
             icon.setIconSize(iconSize);
             LayoutParams iconParams = (LayoutParams) icon.getLayoutParams();
             iconParams.width = iconSize;

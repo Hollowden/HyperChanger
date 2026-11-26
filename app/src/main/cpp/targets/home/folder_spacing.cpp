@@ -545,7 +545,7 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
         const bool want_dock = settings.dock_enabled && known(true) != 1;
         const bool want_native = settings.native_dock_enabled && std::ranges::count_if(effect_slots, [&](const EffectSlot &s) {
             return s.native_parameter != 0 && source_at(generation,s.address) == s.source;
-        }) != 4;
+        }) < 4;
         const uint32_t want_mask = (want_glass ? 1u : 0u) | (want_full ? 2u : 0u)
             | (want_dock ? 4u : 0u) | (want_native ? 8u : 0u);
         if (want_mask == 0) continue;
@@ -569,6 +569,8 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
         std::array<std::vector<std::pair<uintptr_t, uintptr_t>>, no_label_shapes.size()> no_label_calls;
         std::vector<uintptr_t> modern_backgrounds, modern_strategies, modern_glass_radii,
             modern_advanced_radii, modern_paddings;
+        struct ModernPaddingRead { uintptr_t address; uint32_t original; uint32_t reg; };
+        std::vector<ModernPaddingRead> modern_padding_reads;
         for (const auto &mapping : generation) {
             std::vector<uint32_t> code((mapping.end - mapping.begin) / 4);
             if (!nhk::safe_read(mapping.begin, std::as_writable_bytes(std::span(code)))) continue;
@@ -597,6 +599,14 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                     release8583_supports.push_back(mapping.begin+i*4);
                 if (need_native && code[i] == kModernBackgroundShape[0] && matches(candidate, kModernBackgroundShape))
                     modern_backgrounds.push_back(mapping.begin + (i + 2) * 4);
+                if (need_native && code[i] == kModernPaddingReadShape[0] && matches(candidate, kModernPaddingReadShape)) {
+                    if (const auto unbox = find_padding_unbox(candidate.subspan(kModernPaddingReadShape.size())))
+                        modern_padding_reads.push_back({
+                            mapping.begin + (i + kModernPaddingReadShape.size() + unbox->offset) * 4,
+                            unbox->word,
+                            unbox->reg,
+                        });
+                }
                 if (need_native && (code[i] & 0xfc000000) == 0x94000000 && i + 1 < code.size()) {
                     for (size_t role = 0; role < no_label_shapes.size(); ++role) {
                         const auto &shape = no_label_shapes[role];
@@ -974,22 +984,28 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                 || (*ah >> 12) != (*bh >> 12) + 1
                 || home_native_dock::call_target(glass_stub + 8, a[2]) != home_native_dock::call_target(advanced_stub + 8, b[2])
                 || home_native_dock::call_target(glass_stub + 8, a[2]) != home_native_dock::call_target(stub + 8, old[2]))) continue;
-            const auto add_native=[&](uintptr_t addr,uint32_t original,unsigned role) {
+            const auto add_native=[&](uintptr_t addr,uint32_t original,unsigned role,uint32_t reg = 0) {
                 const auto source=source_at(generation,addr);
                 if(!source || source_at(inventory(),addr)!=source || effect_slots.size()>=64
                     || std::ranges::any_of(effect_slots,[&](const EffectSlot &s){return s.address==addr && s.source==*source;})) return;
-                auto slot=make_effect(addr,*source,original,0,0,false,false,role);
+                auto slot=make_effect(addr,*source,original,0,reg,false,false,role);
                 if(!slot) return;
                 slot->class_headers={*ah,*bh}; publish_effect(*slot,settings);
                 if(source_at(inventory(),addr)!=source) return;
                 effect_slots.push_back(*slot);
                 if (write_effect(*slot,true)) __android_log_print(ANDROID_LOG_INFO, kTag,
-                    "Native Dock role=%u installed at %p", role, reinterpret_cast<void *>(addr));
+                    "Native Dock role=%u reg=d%u installed at %p", role, reg, reinterpret_cast<void *>(addr));
             };
             add_native(stub,old[0],1);
             add_native(glass_radii[0]+22*4,glass_shape[22],2);
             add_native(advanced_radii[0]+28*4,advanced_shape[28],3);
             add_native(paddings[0]+9*4,padding_shape[9],4);
+            if (modern_layout && !modern_padding_reads.empty()) {
+                __android_log_print(ANDROID_LOG_INFO, kTag,
+                    "Native Dock live padding reads matched: %zu sites", modern_padding_reads.size());
+                for (const auto &site : modern_padding_reads)
+                    add_native(site.address, site.original, 4, site.reg);
+            }
         }
     }
 }
