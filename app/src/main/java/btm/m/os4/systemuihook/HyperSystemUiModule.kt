@@ -426,54 +426,6 @@ class HyperSystemUiModule : XposedModule() {
         deoptimize(member)
     }.let { hook(member) }
 
-    // Reference: REAREye RearScreenActivityWhitelistModule / ExternalDisplayLaunchUnlockModule.
-    // This new feature is dispatched only by package `system`, independently of the existing
-    // onSystemServerStarting/installFrameworkHooks lifecycle. Do not add android dispatch.
-    private val rearActivityPolicyMethods = mutableSetOf<Method>()
-
-    private fun installRearActivityPolicyHooks(loader: ClassLoader, prefs: SharedPreferences) {
-        if (!ModuleSafetyRuntime.allows(SafetySection.FRAMEWORK)) return
-        val miuiLoader = resolveMiuiServicesLoader(loader) ?: loader
-        fun install(method: Method, onlyDisplayOne: Boolean = false) {
-            if (method in rearActivityPolicyMethods) return
-            hookDeoptimized(method).setExceptionMode(ExceptionMode.PROTECTIVE)
-                .setId("hyperchanger:rear-activity-policy:${method.toGenericString()}")
-                .intercept { chain ->
-                    // Retain original callbacks/side effects exactly once, including when enabled.
-                    val result = chain.proceed()
-                    if (result == false && prefs.isRearMiniPlayerAllowAllActivities() &&
-                        (!onlyDisplayOne || chain.getArg(2) == 1)) true else result
-                }
-            rearActivityPolicyMethods += method
-            btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.INFO, TAG, "Installed rear Activity policy: ${method.toGenericString()}")
-        }
-        runCatching {
-            val cls = loadFrameworkClass(loader, miuiLoader, "com.android.server.wm.ActivityStarterImpl")
-                ?: error("MIUI ActivityStarterImpl unavailable")
-            val methods = cls.declaredMethods.filter { method ->
-                method.returnType == Boolean::class.javaPrimitiveType && when (method.name) {
-                    "isShouldShowOnRearDisplay" -> method.parameterCount == 1 &&
-                        method.parameterTypes[0].name in setOf("android.content.pm.ActivityInfo", "com.android.server.wm.ActivityRecord")
-                    "isAllowedToStartOnRearDisplay" -> method.parameterTypes.firstOrNull()?.name == "com.android.server.wm.ActivityRecord"
-                    else -> false
-                }
-            }
-            require(methods.any { it.name == "isShouldShowOnRearDisplay" }) { "Rear Activity eligibility method unavailable" }
-            require(methods.any { it.name == "isAllowedToStartOnRearDisplay" }) { "Rear Activity start method unavailable" }
-            methods.forEach { install(it) }
-        }.onFailure { btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.WARN, TAG, "Could not install rear Activity eligibility policy", it) }
-        runCatching {
-            val cls = loadFrameworkClass(loader, miuiLoader, "com.android.server.wm.ActivityTaskSupervisor")
-                ?: error("ActivityTaskSupervisor unavailable")
-            val methods = cls.declaredMethods.filter { method ->
-                method.name == "isCallerAllowedToLaunchOnDisplay" && method.returnType == Boolean::class.javaPrimitiveType &&
-                    method.parameterTypes.map { it.name } == listOf("int", "int", "int", "android.content.pm.ActivityInfo")
-            }
-            require(methods.isNotEmpty()) { "External display caller check unavailable" }
-            methods.forEach { install(it, onlyDisplayOne = true) }
-        }.onFailure { btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.WARN, TAG, "Could not install rear display caller policy", it) }
-    }
-
     private fun installFrameworkHooks(loader: ClassLoader, prefs: SharedPreferences) {
         if (!ModuleSafetyRuntime.allows(SafetySection.FRAMEWORK)) return
         val miuiLoader = resolveMiuiServicesLoader(loader) ?: loader
@@ -1149,12 +1101,6 @@ class HyperSystemUiModule : XposedModule() {
             }
             return
         }
-        if (param.packageName == "com.miui.screenshot") {
-            runCatching {
-                othersHooks.installScreenshotHooks(param.defaultClassLoader, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
-            }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install screenshot shell hooks", error) }
-            return
-        }
         if (param.packageName == "com.miui.contentextension") {
             if (!runCatching { android.app.Application.getProcessName() == param.packageName }.getOrDefault(false)) return
             runCatching {
@@ -1176,19 +1122,11 @@ class HyperSystemUiModule : XposedModule() {
             return
         }
         if (param.packageName == "system") {
-            runCatching {
-                installRearActivityPolicyHooks(param.defaultClassLoader, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
-            }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install rear Activity policies", error) }
             // HyperCeiler hooks system_server through onPackageLoaded, so this path is known to work
             // even though onSystemServerStarting also fires. Either one installs the framework hooks.
             runCatching {
                 installFrameworkHooks(param.defaultClassLoader, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
             }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install system framework hooks", error) }
-            return
-        }
-        if (param.packageName == RearMiniPlayerLaunch.MUSIC_PACKAGE) {
-            runCatching { othersHooks.installRearMiniPlayerMusicHooks(getRemotePreferences(REMOTE_PREFERENCE_GROUP)) }
-                .onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install NetEase rear mini player hooks", error) }
             return
         }
         if (param.packageName == "com.miui.home") {
@@ -1226,12 +1164,6 @@ class HyperSystemUiModule : XposedModule() {
             runCatching {
                 othersHooks.installJoyoseHooks(param, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
             }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install Joyose hooks", error) }
-            return
-        }
-        if (param.packageName == "com.mobiletools.systemhelper" || param.packageName == "com.miui.guardprovider") {
-            runCatching {
-                othersHooks.installPreinstalledPrivacyHooks(param, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
-            }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install preinstalled privacy hooks", error) }
             return
         }
         if (param.packageName == SETTINGS_PACKAGE) {
@@ -1531,35 +1463,15 @@ class HyperSystemUiModule : XposedModule() {
                     }
                     installAodEditorBackgroundHook(param.defaultClassLoader, preferences)
                 }
-                SUBSCREEN_CENTER -> {
-                    othersHooks.installRearMiniPlayerSubScreenHooks(preferences)
-                    othersHooks.installIslandSimulationRearScreenHook(param.defaultClassLoader)
-                    othersHooks.installRearScreenAppWidgetUnlockHooks(param.defaultClassLoader)
-                    if (preferences.getBoolean("unlock_xiaomi_18_rear_screen_ai", false) || preferences.getBoolean("remove_custom_rear_screen_restrictions", false)) {
-                        othersHooks.installSubScreenCenterAppWidgetState(param.defaultClassLoader)
-                    }
-                    othersHooks.installMusicControlWhitelistHook(param, preferences)
-                    othersHooks.installRearScreenLeftSwipeHook(param.defaultClassLoader, preferences)
-                }
                 PERSONAL_ASSISTANT -> {
                     if (runCatching { android.app.Application.getProcessName() == PERSONAL_ASSISTANT }.getOrDefault(false)) {
                         othersHooks.installPersonalAssistantWallpaperHooks(param.defaultClassLoader, preferences)
                         othersHooks.installWidgetGlassHooks(param.defaultClassLoader, preferences)
                     }
-                    // The app-card store and its catalog filters are process-local data
-                    // preparation, not an optional visual tweak. Install them even when an
-                    // older preference key was not migrated; otherwise none of the catalog
-                    // hooks can run and the UI silently remains unchanged.
-                    othersHooks.installPersonalAssistantRearScreenAppCardHooks(param.defaultClassLoader)
-                    if (preferences.getBoolean("unlock_xiaomi_18_rear_screen_ai", false) || preferences.getBoolean("remove_custom_rear_screen_restrictions", false)) {
-                    }
                 }
                 THEME_MANAGER -> {
                     customDepthWallpaperHooks.installThemeManager(param.defaultClassLoader, preferences)
                     customDepthWallpaperHooks.installVideoValidationBypass(param.defaultClassLoader)
-                    // Catalog merge/sanitizer hooks are harmless when the feature toggle is
-                    // off and must be installed before ThemeManager initializes its ViewModel.
-                    othersHooks.installThemeManagerRearScreenFeatureGuards(param.defaultClassLoader)
                     if (!themeManagerClockMaterialLimitHookInstalled) {
                         installThemeManagerClockMaterialLimitHook(param.defaultClassLoader, preferences)
                         installClockMaterialCapabilityHook(
@@ -1572,9 +1484,6 @@ class HyperSystemUiModule : XposedModule() {
                     }
                     installAodLockscreenTemplateLimitHook(param.defaultClassLoader, preferences)
                     installVideoWallpaperGlassSupportHook(param.defaultClassLoader, preferences)
-                    if (preferences.getBoolean("unlock_xiaomi_18_rear_screen_ai", false) || preferences.getBoolean("remove_custom_rear_screen_restrictions", false)) {
-                        othersHooks.installCustomRearScreenWidgetRegistration(param.defaultClassLoader)
-                    }
                 }
                 else -> return
             }
@@ -10731,6 +10640,7 @@ class HyperSystemUiModule : XposedModule() {
             DEVICE_CENTER_ENTRY,
             SLIDER_VIEW_HOLDER_CLASS,
             BRIGHTNESS_PANEL_SLIDER_DELEGATE_CLASS,
+            BRIGHTNESS_PANEL_CONTROLLER_CLASS,
             QS_ITEM_VIEW_HOLDER_CLASS,
             "miui.systemui.controlcenter.qs.tileview.QSTileItemIconView",
             "miui.systemui.controlcenter.panel.main.media.MediaPlayerController\$MediaPlayerViewHolder",
@@ -11360,7 +11270,7 @@ class HyperSystemUiModule : XposedModule() {
                             .setId("volume-panel-global-material:style:${method.parameterCount}").intercept { chain ->
                                 val view = chain.getArg(0) as? View
                                 val forceGlass = volumeGlobalGlassSelected() && softGlassRuntime?.settings?.enabled == true &&
-                                    view != null && (isVolumePanelSurface(view) || stackContainsClass("com.android.systemui.miui.volume."))
+                                    view != null && isVolumePanelSurfaceFast(view)
                                 if (!forceGlass) return@intercept chain.proceed()
                                 volumePanelSurfaceRoots.add(view!!)
                                 val previous = volumeMaterialDispatching.get()
@@ -11501,6 +11411,8 @@ class HyperSystemUiModule : XposedModule() {
             // common global setter hooks. Reapplying custom defaults here would both
             // overwrite the system baseline and multiply the global adjustments twice.
             synchronized(volumePanelAppliedTuning) { volumePanelAppliedTuning.remove(root) }
+            val hasStoredAlphas = synchronized(volumeOriginalDrawableAlphas) { volumeOriginalDrawableAlphas.isNotEmpty() }
+            if (!hasStoredAlphas) return
             fun restoreAlpha(view: View) {
                 view.background?.let { background ->
                     synchronized(volumeOriginalDrawableAlphas) { volumeOriginalDrawableAlphas.remove(background) }
@@ -11674,28 +11586,27 @@ class HyperSystemUiModule : XposedModule() {
             }
             MEDIA_PANEL_CLASS -> hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 1, preferences)
             DEVICE_CENTER_ENTRY -> hookDeviceCenterOutline(targetClass, preferences)
-            SLIDER_VIEW_HOLDER_CLASS,
-            BRIGHTNESS_PANEL_SLIDER_DELEGATE_CLASS -> hookUnifiedRadiusSetter(targetClass, "setOutlineRadius", 2, preferences)
-            SECONDARY_VOLUME_PANEL_CLASS -> hookUnifiedRadiusSetter(targetClass, "getCornerRadius", 2, preferences)
+            SLIDER_VIEW_HOLDER_CLASS -> {
+                hookUnifiedRadiusSetter(targetClass, "setOutlineRadius", 2, preferences)
+                hookUnifiedRadiusSetter(targetClass, "setProgressRadius", 2, preferences)
+                hookUnifiedRadiusSetter(targetClass, "getOutlineRadius", 2, preferences)
+                hookUnifiedRadiusSetter(targetClass, "getProgressRadius", 2, preferences)
+            }
+            BRIGHTNESS_PANEL_SLIDER_DELEGATE_CLASS,
+            BRIGHTNESS_PANEL_CONTROLLER_CLASS -> {
+                hookBrightnessExpandedSliderRadius(targetClass, preferences)
+            }
+            SECONDARY_VOLUME_PANEL_CLASS -> {
+                hookUnifiedRadiusSetter(targetClass, "getCornerRadius", 2, preferences)
+                hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 2, preferences)
+                hookUnifiedRadiusSetter(targetClass, "setProgressRadius", 2, preferences)
+            }
             "miui.systemui.controlcenter.qs.tileview.QSTileItemIconView" -> hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 3, preferences)
-            "miui.systemui.controlcenter.panel.main.media.MediaPlayerController\$MediaPlayerViewHolder" -> hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 1, preferences)
+            "miui.systemui.controlcenter.panel.main.media.MediaPlayerController\$MediaPlayerViewHolder" -> {
+                hookUnifiedRadiusSetter(targetClass, "setCornerRadius", 1, preferences)
+            }
             SECONDARY_PANEL_CONTROLLER_BASE_CLASS -> {
-                hookUnifiedRadiusSetter(targetClass, "setContentBgRadius", 5, preferences)
-                runCatching {
-                    hookDeoptimized(targetClass.getDeclaredMethod("updateContentBg", Boolean::class.javaPrimitiveType))
-                        .setExceptionMode(ExceptionMode.PROTECTIVE).setId("control-center-expanded-background-radius")
-                        .intercept { chain ->
-                            val result = chain.proceed()
-                            val target = chain.thisObject ?: return@intercept result
-                            val settings = controlRadiusSettings(preferences)
-                            if (settings.enabled && settings.expandedPanel != 0) {
-                                val view = runCatching { target.javaClass.getMethod("getContentBg").invoke(target) as? View }.getOrNull()
-                                val radius = readInstanceField(target, "contentBgRadius") as? Float
-                                if (view != null && radius != null) (view.background as? GradientDrawable)?.mutate()?.let { (it as GradientDrawable).cornerRadius = radius }
-                            }
-                            result
-                        }
-                }
+                hookSecondaryPanelRadiusAndItems(targetClass, preferences)
             }
             MI_BACKGROUND_STYLE_CLASS -> hookMaterialStyle(targetClass, preferences)
             else -> cornerTargetClasses.remove(targetClass)
@@ -11706,6 +11617,306 @@ class HyperSystemUiModule : XposedModule() {
     private val controlRadiusBaselines = WeakHashMap<Any, MutableMap<String, ControlCenterRadiusBaseline>>()
     private val controlDrawableBaselines = WeakHashMap<Drawable, ControlCenterRadiusBaseline>()
     private val controlOriginalOutlines = WeakHashMap<View, Pair<ViewOutlineProvider?, Boolean>>()
+    private val volumeSurfaceFastCache = WeakHashMap<View, Boolean>()
+    private val secondaryAnimatingMethods = java.util.concurrent.ConcurrentHashMap<Class<*>, java.util.Optional<java.lang.reflect.Method>>()
+    private val secondaryContentBgMethods = java.util.concurrent.ConcurrentHashMap<Class<*>, java.util.Optional<java.lang.reflect.Method>>()
+    private val secondarySmoothRadiusMethods = java.util.concurrent.ConcurrentHashMap<Class<*>, java.util.Optional<java.lang.reflect.Method>>()
+    private val secondarySmoothGetRadiusMethods = java.util.concurrent.ConcurrentHashMap<Class<*>, java.util.Optional<java.lang.reflect.Method>>()
+    private val mediaDeviceIconMethods = java.util.concurrent.ConcurrentHashMap<Class<*>, java.util.Optional<java.lang.reflect.Method>>()
+    private val miBlurCompatOutlineMethods = java.util.concurrent.ConcurrentHashMap<ClassLoader, java.util.Optional<java.lang.reflect.Method>>()
+    private val secondaryPanelItemTouchedRoots = Collections.newSetFromMap(WeakHashMap<View, Boolean>())
+    @Volatile private var latestMainSliderOutlineRadius: Float = -1f
+    @Volatile private var latestMainSliderProgressRadius: Float = -1f
+
+    /** 快速判断视图是否属于音量面板，避免在每次 setMiBackgroundStyle 时反复抓 JVM 全栈造成长按展开音量详细面板卡顿。 */
+    private fun isVolumePanelSurfaceFast(view: View): Boolean {
+        if (volumePanelSurfaceRoots.contains(view)) return true
+        synchronized(volumeSurfaceFastCache) {
+            volumeSurfaceFastCache[view]?.let { return it }
+        }
+        val detected = isVolumePanelSurface(view)
+        if (detected) {
+            synchronized(volumeSurfaceFastCache) { volumeSurfaceFastCache[view] = true }
+            return true
+        }
+        // 仅在尚未附着到窗口（刚 inflate）的匿名视图上做轻量短栈检查，已附着视图直接缓存 false。
+        if (!view.isAttachedToWindow) {
+            val fromVolume = ShadeMaterialHotPath.glassCaller() == ShadeMaterialHotPath.VOLUME
+            if (fromVolume) {
+                synchronized(volumeSurfaceFastCache) { volumeSurfaceFastCache[view] = true }
+            }
+            return fromVolume
+        }
+        synchronized(volumeSurfaceFastCache) { volumeSurfaceFastCache[view] = false }
+        return false
+    }
+
+    private fun isSecondaryPanelAnimating(target: Any): Boolean {
+        val m = secondaryAnimatingMethods.computeIfAbsent(target.javaClass) { cls ->
+            java.util.Optional.ofNullable(runCatching { cls.getMethod("isAnimating") }.getOrNull())
+        }.orElse(null) ?: return false
+        return runCatching { m.invoke(target) == true }.getOrDefault(false)
+    }
+
+    private fun resolveSecondaryContentBg(target: Any): View? {
+        val m = secondaryContentBgMethods.computeIfAbsent(target.javaClass) { cls ->
+            java.util.Optional.ofNullable(runCatching { cls.getMethod("getContentBg") }.getOrNull())
+        }.orElse(null) ?: return null
+        return runCatching { m.invoke(target) as? View }.getOrNull()
+    }
+
+    /** 媒体卡片大圆角时同步让原生右上角耳机（音频输出）图标向内缩进，避免贴近大圆角斜边。 */
+    private fun adjustNativeMediaDeviceIconInset(target: Any, view: View, radiusPx: Float) {
+        if (ControlCenterTileLayoutHook.isCustomMediaActive(view)) return
+        val getter = mediaDeviceIconMethods.computeIfAbsent(target.javaClass) { cls ->
+            java.util.Optional.ofNullable(runCatching { cls.getMethod("getDeviceIconView") }.getOrNull())
+        }.orElse(null) ?: return
+        val deviceIcon = runCatching { getter.invoke(target) as? View }.getOrNull() ?: return
+        val d = view.resources.displayMetrics.density
+        val extra = ((radiusPx - 20f * d).coerceAtLeast(0f) * 0.36f)
+        if (deviceIcon.translationX != -extra) deviceIcon.translationX = -extra
+        if (deviceIcon.translationY != extra) deviceIcon.translationY = extra
+    }
+
+    /**
+     * 亮度条与长按展开大亮度条圆角统一同步：
+     * - 始终对齐控制中心主亮度条的实际外框/进度条圆角（含用户自定义圆角偏移）；
+     * - 同时覆盖 setOutlineRadius / setProgressRadius / getOutlineRadius / getProgressRadius。
+     */
+    private fun hookBrightnessExpandedSliderRadius(targetClass: Class<*>, preferences: SharedPreferences) {
+        val isDelegate = targetClass.name == BRIGHTNESS_PANEL_SLIDER_DELEGATE_CLASS
+        listOf("setOutlineRadius", "setProgressRadius", "getOutlineRadius", "getProgressRadius").forEach { methodName ->
+            runCatching {
+                val isGetter = methodName.startsWith("get")
+                val method = if (isGetter) targetClass.getMethod(methodName)
+                else targetClass.getMethod(methodName, Float::class.javaPrimitiveType)
+                val isProgress = methodName.contains("Progress")
+                hookDeoptimized(method).setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .setId("brightness-expanded-slider:${targetClass.simpleName}#$methodName")
+                    .intercept { chain ->
+                        val target = chain.thisObject ?: return@intercept chain.proceed()
+                        if (controlRadiusDispatch.get() == 2) return@intercept chain.proceed()
+                        val settings = controlRadiusSettings(preferences)
+                        val view = controlRadiusView(target) ?: return@intercept chain.proceed()
+                        val density = view.resources.displayMetrics.density
+                        val syncedMain = if (isProgress) {
+                            latestMainSliderProgressRadius.takeIf { it >= 0f } ?: latestMainSliderOutlineRadius.takeIf { it >= 0f }
+                        } else {
+                            latestMainSliderOutlineRadius.takeIf { it >= 0f }
+                        }
+                        if (isGetter) {
+                            val original = chain.proceed() as? Float ?: return@intercept null
+                            syncedMain ?: adjustedControlCenterRadius(original, settings.sliders, density, settings.enabled)
+                        } else {
+                            val input = chain.getArg(0) as Float
+                            val targetRadius = syncedMain ?: resolveControlRadius(target, methodName, input, density, settings, 2)
+                            val previous = controlRadiusDispatch.get()
+                            controlRadiusDispatch.set(2)
+                            try {
+                                val res = chain.proceedWith(target, arrayOf(targetRadius))
+                                if (isDelegate) {
+                                    applySliderDrawableRadius(target, targetRadius, input)
+                                }
+                                res
+                            } finally {
+                                if (previous == null) controlRadiusDispatch.remove() else controlRadiusDispatch.set(previous)
+                            }
+                        }
+                    }
+            }.onFailure { error ->
+                HookModuleLogger.log(this, Log.DEBUG, TAG, "Brightness expanded slider hook unavailable: ${targetClass.simpleName}#$methodName", error)
+            }
+        }
+    }
+
+    /**
+     * 二级展开面板（媒体 / WLAN / 移动数据 / 蓝牙等）：
+     * 1. 静态配置时叠加 expandedPanel 偏移，并同步覆盖 GradientDrawable 与 OutlineProvider（确保上下四个圆角完全统一）；
+     * 2. 展开/缩小动画帧（isAnimating() == true）直接透传动画插值圆角，彻底消除缩小结束瞬间因二次叠加造成的圆角闪跳；
+     * 3. 同步调整展开面板内部横条卡片与「更多设置」按钮的圆角（expandedPanelItem）。
+     */
+    private fun hookSecondaryPanelRadiusAndItems(targetClass: Class<*>, preferences: SharedPreferences) {
+        runCatching {
+            val setter = targetClass.getMethod("setContentBgRadius", Float::class.javaPrimitiveType)
+            hookDeoptimized(setter).setExceptionMode(ExceptionMode.PROTECTIVE)
+                .setId("secondary-panel-bg-radius:set")
+                .intercept { chain ->
+                    val target = chain.thisObject ?: return@intercept chain.proceed()
+                    if (controlRadiusDispatch.get() == 5) return@intercept chain.proceed()
+                    val input = chain.getArg(0) as Float
+                    val settings = controlRadiusSettings(preferences)
+                    val view = resolveSecondaryContentBg(target)
+                    val animating = isSecondaryPanelAnimating(target)
+                    val radius = if (animating) {
+                        // 动画插值帧的 fromCornerRadius / toCornerRadius 已包含目标圆角，直接透传绝不重复叠加！
+                        input
+                    } else if (view != null) {
+                        val active = settings.enabled && settings.expandedPanel != 0
+                        val hadBaseline = synchronized(controlRadiusBaselines) { controlRadiusBaselines[target]?.containsKey("setContentBgRadius") == true }
+                        if (!active && !hadBaseline) input
+                        else resolveControlRadius(target, "setContentBgRadius", input, view.resources.displayMetrics.density, settings, 5)
+                    } else input
+
+                    val previous = controlRadiusDispatch.get()
+                    controlRadiusDispatch.set(5)
+                    try {
+                        val res = chain.proceedWith(target, arrayOf(radius))
+                        if (view != null && (settings.enabled && (settings.expandedPanel != 0 || settings.mediaCard != 0))) {
+                            (view.background as? GradientDrawable)?.mutate()?.let { (it as GradientDrawable).cornerRadius = radius }
+                            updateControlOutline(view, radius, true)
+                        }
+                        res
+                    } finally {
+                        if (previous == null) controlRadiusDispatch.remove() else controlRadiusDispatch.set(previous)
+                    }
+                }
+        }.onFailure { HookModuleLogger.log(this, Log.DEBUG, TAG, "Secondary setContentBgRadius hook unavailable", it) }
+
+        runCatching {
+            val getter = targetClass.getMethod("getContentBgRadius")
+            hookDeoptimized(getter).setExceptionMode(ExceptionMode.PROTECTIVE)
+                .setId("secondary-panel-bg-radius:get")
+                .intercept { chain ->
+                    val original = chain.proceed() as? Float ?: return@intercept null
+                    val target = chain.thisObject ?: return@intercept original
+                    if (isSecondaryPanelAnimating(target)) return@intercept original
+                    val settings = controlRadiusSettings(preferences)
+                    if (!settings.enabled || settings.expandedPanel == 0) return@intercept original
+                    val view = resolveSecondaryContentBg(target) ?: return@intercept original
+                    resolveControlRadius(target, "setContentBgRadius", original, view.resources.displayMetrics.density, settings, 5)
+                }
+        }.onFailure { HookModuleLogger.log(this, Log.DEBUG, TAG, "Secondary getContentBgRadius hook unavailable", it) }
+
+        listOf("updateContentBg", "onAnimComplete", "forceToShow").forEach { name ->
+            targetClass.declaredMethods.filter { it.name == name }.forEach { m ->
+                runCatching {
+                    hookDeoptimized(m).setExceptionMode(ExceptionMode.PROTECTIVE)
+                        .setId("secondary-panel-sync:${m.name}:${m.parameterCount}")
+                        .intercept { chain ->
+                            val result = chain.proceed()
+                            val target = chain.thisObject ?: return@intercept result
+                            val view = resolveSecondaryContentBg(target) ?: return@intercept result
+                            val settings = controlRadiusSettings(preferences)
+                            if (settings.enabled && settings.expandedPanel != 0 && !isSecondaryPanelAnimating(target)) {
+                                val radius = readInstanceField(target, "contentBgRadius") as? Float
+                                if (radius != null) {
+                                    (view.background as? GradientDrawable)?.mutate()?.let { (it as GradientDrawable).cornerRadius = radius }
+                                    updateControlOutline(view, radius, true)
+                                }
+                            }
+                            val itemActive = settings.enabled && settings.expandedPanelItem != 0
+                            val wasTouched = synchronized(secondaryPanelItemTouchedRoots) {
+                                secondaryPanelItemTouchedRoots.contains(view)
+                            }
+                            if (itemActive || wasTouched) {
+                                view.post { applySecondaryPanelItemRadii(view, settings) }
+                            }
+                            result
+                        }
+                }
+            }
+        }
+    }
+
+    /** 递归调整二级展开面板内部条目卡片（如本机/耳机设备条、WLAN 条目与列表卡片、SIM 卡卡片）及底部「更多设置」按钮圆角。 */
+    private fun applySecondaryPanelItemRadii(root: View, settings: ControlCenterRadiusSettings) {
+        val offset = settings.expandedPanelItem
+        val active = settings.enabled && offset != 0
+        if (active) {
+            synchronized(secondaryPanelItemTouchedRoots) { secondaryPanelItemTouchedRoots.add(root) }
+        }
+        val density = root.resources.displayMetrics.density
+        val minItemHeightPx = (34f * density).toInt()
+        val minItemWidthPx = (84f * density).toInt()
+        val rootWidth = root.width
+
+        fun adjustDrawable(drawable: Drawable?, view: View): Float? {
+            drawable ?: return null
+            when (drawable) {
+                is GradientDrawable -> {
+                    val orig = drawable.cornerRadius
+                    val hasBase = synchronized(controlDrawableBaselines) { controlDrawableBaselines.containsKey(drawable) }
+                    if (!active && !hasBase) return null
+                    if (orig <= 0f && !hasBase) return null
+                    val maxR = minOf(view.width, view.height).takeIf { it > 0 }?.div(2f) ?: 999f
+                    val r = synchronized(controlDrawableBaselines) {
+                        controlDrawableBaselines.getOrPut(drawable) { ControlCenterRadiusBaseline() }
+                            .resolve(orig, offset, density, active)
+                    }.coerceAtMost(maxR)
+                    if (kotlin.math.abs(orig - r) > 0.1f) {
+                        (drawable.mutate() as GradientDrawable).cornerRadius = r
+                    }
+                    return r
+                }
+                is android.graphics.drawable.LayerDrawable -> {
+                    var applied: Float? = null
+                    for (i in 0 until drawable.numberOfLayers) {
+                        adjustDrawable(drawable.getDrawable(i), view)?.let { applied = it }
+                    }
+                    return applied
+                }
+                else -> {
+                    val cls = drawable.javaClass
+                    val setM = secondarySmoothRadiusMethods.computeIfAbsent(cls) { c ->
+                        java.util.Optional.ofNullable(
+                            runCatching { c.getMethod("setCornerRadius", Float::class.javaPrimitiveType) }.getOrNull()
+                        )
+                    }.orElse(null) ?: return null
+                    val getM = secondarySmoothGetRadiusMethods.computeIfAbsent(cls) { c ->
+                        java.util.Optional.ofNullable(
+                            runCatching { c.getMethod("getCornerRadius") }.getOrNull()
+                        )
+                    }.orElse(null)
+                    val hasBase = synchronized(controlDrawableBaselines) { controlDrawableBaselines.containsKey(drawable) }
+                    if (!active && !hasBase) return null
+                    val orig = runCatching { getM?.invoke(drawable) as? Float }.getOrNull() ?: (16f * density)
+                    val maxR = minOf(view.width, view.height).takeIf { it > 0 }?.div(2f) ?: 999f
+                    val r = synchronized(controlDrawableBaselines) {
+                        controlDrawableBaselines.getOrPut(drawable) { ControlCenterRadiusBaseline() }
+                            .resolve(orig, offset, density, active)
+                    }.coerceAtMost(maxR)
+                    if (kotlin.math.abs(orig - r) > 0.1f) {
+                        runCatching { setM.invoke(drawable.mutate(), r) }
+                    }
+                    return r
+                }
+            }
+        }
+
+        fun visit(v: View, depth: Int) {
+            if (depth > 8 || v.visibility == View.GONE) return
+            if (v !== root) {
+                val clsName = v.javaClass.name
+                val isExcludedWidget = v is android.widget.CompoundButton || v is android.widget.SeekBar ||
+                    v is android.widget.ImageView ||
+                    clsName.contains("Switch", ignoreCase = true) || clsName.contains("Slider", ignoreCase = true) ||
+                    clsName.contains("ProgressBar", ignoreCase = true)
+                if (!isExcludedWidget && v.background != null) {
+                    val w = v.width
+                    val h = v.height
+                    // 匹配内部条目横条、WLAN/设备列表容器与「更多设置」按钮，排除小图标、分割线及与整面板同宽的顶层包装器。
+                    val isFullCoverLike = rootWidth > 0 && w >= (rootWidth * 0.96f).toInt() && v.top <= (4f * density).toInt() && h > (rootWidth * 0.6f).toInt()
+                    val looksLikeCardOrBar = !isFullCoverLike && (
+                        (w <= 0 && h <= 0) ||
+                            (h >= minItemHeightPx && w >= maxOf(minItemWidthPx, (rootWidth * 0.45f).toInt()))
+                        )
+                    if (looksLikeCardOrBar) {
+                        val appliedR = adjustDrawable(v.background, v)
+                        if (appliedR != null) {
+                            updateControlOutline(v, appliedR, active)
+                        }
+                    }
+                }
+            }
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) visit(v.getChildAt(i), depth + 1)
+            }
+        }
+        visit(root, 0)
+        if (!active) {
+            synchronized(secondaryPanelItemTouchedRoots) { secondaryPanelItemTouchedRoots.remove(root) }
+        }
+    }
 
     private fun controlRadiusSettings(preferences: SharedPreferences) =
         controlCenterRadiusRuntime?.settings ?: ControlCenterRadiusPreferences.read(preferences)
@@ -11804,8 +12015,15 @@ class HyperSystemUiModule : XposedModule() {
                         try {
                             val result = chain.proceedWith(target, arrayOf(radius))
                             if (category == 0) updateControlOutline(view, radius, active)
-                            if (category == 1) (view.background as? GradientDrawable)?.mutate()?.let { (it as GradientDrawable).cornerRadius = radius }
+                            if (category == 1) {
+                                (view.background as? GradientDrawable)?.mutate()?.let { (it as GradientDrawable).cornerRadius = radius }
+                                adjustNativeMediaDeviceIconInset(target, view, radius)
+                            }
                             if (category == 2) {
+                                if (targetClass.name == SLIDER_VIEW_HOLDER_CLASS) {
+                                    if (methodName == "setOutlineRadius") latestMainSliderOutlineRadius = radius
+                                    else if (methodName == "setProgressRadius") latestMainSliderProgressRadius = radius
+                                }
                                 val originalRadius = synchronized(controlRadiusBaselines) { controlRadiusBaselines[target]?.get(methodName)?.originalRadius }
                                 applySliderDrawableRadius(target, radius, originalRadius)
                             }
@@ -11972,11 +12190,11 @@ class HyperSystemUiModule : XposedModule() {
         if (target == null) return
         val views = mutableListOf<View>()
         readField(target, "binding")?.let { binding ->
-            listOf("progressBg").forEach { field ->
+            listOf("progressBg", "progress").forEach { field ->
                 (readField(binding, field) as? View)?.let(views::add)
             }
         }
-        listOf("getVProgressBg", "getVToggleSliderInner").forEach { methodName ->
+        listOf("getVProgressBg", "getVProgress", "getVToggleSliderInner").forEach { methodName ->
             runCatching {
                 target.javaClass.methods.firstOrNull { it.name == methodName && it.parameterCount == 0 }
                     ?.invoke(target) as? View
@@ -12058,20 +12276,36 @@ class HyperSystemUiModule : XposedModule() {
         return false
     }
 
-    private fun applyRoundedOutline(view: View, radius: Float) {
-        val appliedByMiui = runCatching {
-            val helper = Class.forName("miui.systemui.util.MiBlurCompat", false, view.javaClass.classLoader)
-            helper.getMethod("setBlurOutlineRoundRect", View::class.java, Float::class.javaPrimitiveType)
-                .invoke(null, view, radius)
-        }.isSuccess
-        if (appliedByMiui) return
+    private class MutableRoundedOutlineProvider(var radius: Float) : ViewOutlineProvider() {
+        override fun getOutline(target: View, outline: Outline) {
+            outline.setRoundRect(0, 0, target.width, target.height, radius)
+        }
+    }
 
-        view.clipToOutline = true
-        view.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(target: View, outline: Outline) {
-                outline.setRoundRect(0, 0, target.width, target.height, radius)
+    private fun applyRoundedOutline(view: View, radius: Float) {
+        val cl = view.javaClass.classLoader
+        if (cl != null) {
+            val compatMethod = miBlurCompatOutlineMethods.computeIfAbsent(cl) { loader ->
+                java.util.Optional.ofNullable(runCatching {
+                    val helper = Class.forName("miui.systemui.util.MiBlurCompat", false, loader)
+                    helper.getMethod("setBlurOutlineRoundRect", View::class.java, Float::class.javaPrimitiveType)
+                }.getOrNull())
+            }.orElse(null)
+            if (compatMethod != null && runCatching { compatMethod.invoke(null, view, radius) }.isSuccess) {
+                return
             }
         }
+
+        if (!view.clipToOutline) view.clipToOutline = true
+        val existing = view.outlineProvider as? MutableRoundedOutlineProvider
+        if (existing != null) {
+            if (kotlin.math.abs(existing.radius - radius) > 0.1f) {
+                existing.radius = radius
+                view.invalidateOutline()
+            }
+            return
+        }
+        view.outlineProvider = MutableRoundedOutlineProvider(radius)
         view.invalidateOutline()
     }
 
@@ -12089,10 +12323,9 @@ class HyperSystemUiModule : XposedModule() {
         private const val AOD = "com.miui.aod"
         private const val SUPER_XIAOAI_IME = "com.xiaomi.type"
         private const val SUPER_XIAOAI_PHRASE = "com.miui.phrase"
-        private const val SUBSCREEN_CENTER = "com.xiaomi.subscreencenter"
         private const val PERSONAL_ASSISTANT = "com.miui.personalassistant"
         private const val THEME_MANAGER = "com.android.thememanager"
-        private val SYSTEM_UI_TARGETS = setOf(SYSTEM_UI, SYSTEM_UI_PLUGIN, AOD, SUPER_XIAOAI_IME, SUPER_XIAOAI_PHRASE, SUBSCREEN_CENTER, PERSONAL_ASSISTANT, THEME_MANAGER)
+        private val SYSTEM_UI_TARGETS = setOf(SYSTEM_UI, SYSTEM_UI_PLUGIN, AOD, SUPER_XIAOAI_IME, SUPER_XIAOAI_PHRASE, PERSONAL_ASSISTANT, THEME_MANAGER)
         private const val DEPTH_EVALUATOR_CLASS =
             "com.miui.clock.utils.avoid.DepthAvoidEvaluator"
         private const val DEPTH_THRESHOLD_CLASS =
@@ -12286,6 +12519,8 @@ class HyperSystemUiModule : XposedModule() {
             "miui.systemui.controlcenter.panel.main.recyclerview.ToggleSliderViewHolder"
         private const val BRIGHTNESS_PANEL_SLIDER_DELEGATE_CLASS =
             "miui.systemui.controlcenter.panel.secondary.brightness.BrightnessPanelSliderDelegate"
+        private const val BRIGHTNESS_PANEL_CONTROLLER_CLASS =
+            "miui.systemui.controlcenter.panel.secondary.brightness.BrightnessPanelController"
         private const val SECONDARY_PANEL_CONTROLLER_BASE_CLASS = "miui.systemui.controlcenter.panel.secondary.SecondaryPanelControllerBase"
         private const val SECONDARY_VOLUME_PANEL_CLASS =
             "miui.systemui.controlcenter.panel.secondary.volume.VolumePanelController"

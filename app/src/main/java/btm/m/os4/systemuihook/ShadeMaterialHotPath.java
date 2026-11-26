@@ -35,9 +35,12 @@ public final class ShadeMaterialHotPath {
     }
 
     public static int glassCaller() {
+        StackTraceElement[] frames = Thread.currentThread().getStackTrace();
+        // 限制扫描前 18 层调用栈即可覆盖所有音量/控制中心/通知中心渲染调用，避免遍历 50+ 层 Looper 栈导致二级面板展开卡顿。
+        int limit = Math.min(frames.length, 18);
         boolean shade = false;
-        for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
-            String name = frame.getClassName();
+        for (int i = 2; i < limit; i++) {
+            String name = frames[i].getClassName();
             if (containsVolumeClass(name)) return VOLUME;
             if (!shade) {
                 shade = name.startsWith("miui.systemui.controlcenter.")

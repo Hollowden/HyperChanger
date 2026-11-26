@@ -17,33 +17,69 @@ internal class PersonalAssistantWallpaperHooks(
 
     fun install(classLoader: ClassLoader, preferences: SharedPreferences) {
         val settings = readPersonalAssistantSettings(preferences)
-        if (!settings.removeWallpaperBlur && !settings.customBlurActive && settings.backgroundMode == 0) return
+        // 开启「去除背景壁纸模糊」或将自定义模糊值调为 0 时，即使背景模式为「系统默认」，
+        // 也自动启用纯净桌面壁纸底图：既避免透出桌面图标/小组件，又为同窗口 MiGlass 柔光玻璃提供真实采样底图。
+        val effectiveBackgroundMode = when {
+            settings.backgroundMode != 0 -> settings.backgroundMode
+            settings.removeWallpaperBlur -> 1
+            settings.customBlurActive && settings.wallpaperBlurRadius == 0 -> 1
+            else -> 0
+        }
+        val effectiveSettings = settings.copy(backgroundMode = effectiveBackgroundMode)
+        if (!effectiveSettings.removeWallpaperBlur && !effectiveSettings.customBlurActive && effectiveBackgroundMode == 0) return
         for (name in listOf("blurView", "blurOverlayWindow")) {
             if (name in installed) continue
             runCatching {
                 val adapter = classLoader.loadClass("com.miui.personalassistant.device.DeviceBlurBlendAdapter")
                 val method = adapter.getDeclaredMethod(name, java.lang.Float.TYPE)
                 check(method.returnType == java.lang.Void.TYPE)
-                val nativeMax = if (settings.customBlurActive) adapter.getDeclaredField("maxBlurRadius")
-                    .apply { check(type == java.lang.Float.TYPE); isAccessible = true } else null
+                val nativeMax = adapter.getDeclaredField("maxBlurRadius")
+                    .apply { check(type == java.lang.Float.TYPE); isAccessible = true }
                 hookDeoptimized(method).setExceptionMode(ExceptionMode.PROTECTIVE)
                     .setId("hyperchanger:personal-assistant:wallpaper:$name")
                     .intercept { chain ->
-                        if (backgroundHooks?.replacesBackground(chain.thisObject) == true) {
-                            // The image owns its blur settings. Keep native backdrop blur for the
-                            // desktop exposed during entry/exit, including native progress and cleanup.
-                            chain.proceed()
-                        } else if (settings.removeWallpaperBlur) {
-                            chain.proceed(arrayOf(0.0f))
-                        } else if (settings.customBlurActive) {
-                            val instance = chain.thisObject
-                            val radiusOrProgress = chain.getArg(0) as Float
-                            val originalMax = nativeMax!!.getFloat(instance)
+                        val instance = chain.thisObject
+                        val arg = chain.getArg(0) as Float
+                        val replacing = backgroundHooks?.replacesBackground(instance) == true
+                        if (replacing) {
+                            // 纯壁纸/自定义背景 ImageView 已完全覆盖底层且自行渲染模糊（去模糊时 RenderEffect=null 零开销）。
+                            // 离开负一屏（arg <= 0）时归零释放缓冲；在负一屏内确保 (int)(max * arg) >= 1，
+                            // 既省去原生 100px 冗余全屏模糊 GPU 功耗，又保活 HyperOS PassBlur/MiGlass 通道防止柔光玻璃变黑/闪黑。
+                            if (arg <= 0.001f) {
+                                chain.proceed(arrayOf(0.0f))
+                            } else if (name == "blurOverlayWindow") {
+                                chain.proceed(arrayOf(1.0f))
+                            } else {
+                                val originalMax = nativeMax.getFloat(instance)
+                                val keepAliveMax = (1.5f / arg.coerceAtLeast(0.01f)).coerceAtMost(originalMax.coerceAtLeast(2f))
+                                nativeMax.setFloat(instance, keepAliveMax)
+                                try { chain.proceed() } finally { nativeMax.setFloat(instance, originalMax) }
+                            }
+                        } else if (effectiveSettings.removeWallpaperBlur) {
+                            // 兜底：若壁纸尚未加载完成，进入态同样确保 (int)(max * arg) >= 1 防止 MiGlass 柔光玻璃采样空缓冲变黑。
+                            if (arg <= 0.001f) {
+                                chain.proceed(arrayOf(0.0f))
+                            } else if (name == "blurOverlayWindow") {
+                                chain.proceed(arrayOf(1.0f))
+                            } else {
+                                val originalMax = nativeMax.getFloat(instance)
+                                val keepAliveMax = (1.5f / arg.coerceAtLeast(0.01f)).coerceAtMost(originalMax.coerceAtLeast(2f))
+                                nativeMax.setFloat(instance, keepAliveMax)
+                                try { chain.proceed() } finally { nativeMax.setFloat(instance, originalMax) }
+                            }
+                        } else if (effectiveSettings.customBlurActive) {
+                            val originalMax = nativeMax.getFloat(instance)
                             if (name == "blurOverlayWindow") {
-                                chain.proceed(arrayOf(settings.windowBlurRadius(radiusOrProgress, originalMax)))
+                                val target = effectiveSettings.windowBlurRadius(arg, originalMax)
+                                val safe = if (arg > 0.001f && target < 1.0f) 1.0f else target
+                                chain.proceed(arrayOf(safe))
                             } else {
                                 // Keep native progress (including blur scale) while changing only its radius.
-                                nativeMax.setFloat(instance, settings.wallpaperBlurRadius.toFloat())
+                                val rawMax = effectiveSettings.wallpaperBlurRadius.toFloat()
+                                val targetMax = if (arg > 0.001f && rawMax * arg < 1.0f) {
+                                    (1.5f / arg.coerceAtLeast(0.01f)).coerceAtMost(originalMax.coerceAtLeast(2f))
+                                } else rawMax
+                                nativeMax.setFloat(instance, targetMax)
                                 try { chain.proceed() } finally { nativeMax.setFloat(instance, originalMax) }
                             }
                         } else chain.proceed()
@@ -54,9 +90,9 @@ internal class PersonalAssistantWallpaperHooks(
                 HookModuleLogger.log(module, ModuleLog.WARN, TAG, "Could not install overlay wallpaper hook: $name", it)
             }
         }
-        if (settings.backgroundMode != 0 && installed.containsAll(listOf("blurView", "blurOverlayWindow")) && backgroundHooks == null) {
+        if (effectiveBackgroundMode != 0 && installed.containsAll(listOf("blurView", "blurOverlayWindow")) && backgroundHooks == null) {
             runCatching {
-                PersonalAssistantBackgroundHooks(module, hookDeoptimized, classLoader, settings).also {
+                PersonalAssistantBackgroundHooks(module, hookDeoptimized, classLoader, effectiveSettings).also {
                     backgroundHooks = it
                     it.install()
                 }

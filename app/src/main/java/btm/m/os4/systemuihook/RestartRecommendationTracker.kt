@@ -130,17 +130,7 @@ internal fun restartScopesForPreference(group: String, key: String): Set<ScopeAp
         key == KEY_GMS_QUICK_SHARE_ISLAND -> setOf(ScopeApplication.GOOGLE_PLAY_SERVICES)
         key.startsWith("system_update_") -> setOf(ScopeApplication.SYSTEM_UPDATE)
         key.startsWith("screenrecorder_") -> setOf(ScopeApplication.SCREEN_RECORDER, ScopeApplication.XIAOMI_HEALTH)
-        key.contains("music_controls_") -> setOf(ScopeApplication.SUBSCREEN_CENTER)
         key.startsWith("super_xiaoai_") -> setOf(ScopeApplication.SUPER_XIAOAI_IME)
-        key == KEY_REAR_SCREEN_LEFT_SWIPE_ENABLED || key == KEY_REAR_SCREEN_LEFT_SWIPE_PACKAGE ->
-            setOf(ScopeApplication.SUBSCREEN_CENTER)
-        key == KEY_REAR_MINI_PLAYER_ENABLED -> setOf(ScopeApplication.NETEASE_MUSIC, ScopeApplication.SUBSCREEN_CENTER)
-        // Framework scope is not an app restart target; the page requests a manual reboot.
-        key == KEY_REAR_MINI_PLAYER_ALLOW_ALL_ACTIVITIES -> emptySet()
-        key == "rear_screen_theme_apply_fix" || key.startsWith("rear_wallpaper_limit_") ->
-            setOf(ScopeApplication.THEME_MANAGER)
-        key.startsWith("rear_") || key.contains("rear_screen") || key.contains("subscreen") ->
-            setOf(ScopeApplication.SUBSCREEN_CENTER, ScopeApplication.THEME_MANAGER, ScopeApplication.PERSONAL_ASSISTANT)
         key.startsWith("raster_wallpaper_") -> setOf(ScopeApplication.SYSTEM_UI, ScopeApplication.WALLPAPER)
         key.startsWith("lockscreen_") || key.startsWith("mini_player_") || key.startsWith("lift_to_wake_") ||
             key == "hyperchanger_lockscreen_clock_horizontal_offset_v2" ->

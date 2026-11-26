@@ -344,7 +344,6 @@ object ModulePresetCodec {
             File(root, "media_notification_cover.webp"),
         ) + listOf(
             File(root, "settings_appearance"),
-            File(root, "rear_screenshot_shells"),
             File(root, "lyric_library"),
             File(root, ASSISTANT_BACKGROUND_DIRECTORY),
         )
@@ -396,7 +395,6 @@ object ModulePresetCodec {
         File(context.filesDir, "normal_notification_image.webp"),
         File(context.filesDir, "media_notification_cover.webp"),
         File(context.filesDir, "settings_appearance"),
-        File(context.filesDir, "rear_screenshot_shells"),
         File(context.filesDir, "lyric_library"),
         File(context.filesDir, ASSISTANT_BACKGROUND_DIRECTORY),
     )

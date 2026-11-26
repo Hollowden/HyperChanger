@@ -73,6 +73,7 @@ internal class ControlCenterTileLayoutHook(private val module: XposedModule) {
 
     private fun installAdapter(clazz: Class<*>, p: SharedPreferences) {
         if (!installed.add(clazz)) return
+        activeInstance = this
         settings = readCcTileLayoutSettings(p)
         selectionPreferences = p
         installTileSelection(clazz.classLoader!!, p)
@@ -280,6 +281,22 @@ internal class ControlCenterTileLayoutHook(private val module: XposedModule) {
         find(root, "cover")?.invalidateOutline()
     }
 
+    private fun mediaCornerRadius(root: View): Float? {
+        val holder = mediaHolders[root]?.get()
+        val holderRadius = (call(holder, "getCornerRadius") as? Float)?.takeIf { it > 0f }
+        if (holderRadius != null) return holderRadius
+        return (field(root, "cornerRadius") as? Float)?.takeIf { it > 0f }
+    }
+
+    /** 大圆角时让右上角音频输出（耳机）图标沿圆角几何安全线向内缩进，避免贴边切角。 */
+    private fun mediaDeviceInset(root: View, baseInset: Int): Int {
+        val radius = mediaCornerRadius(root) ?: return baseInset
+        val d = root.resources.displayMetrics.density
+        val extra = ((radius - 20f * d).coerceAtLeast(0f) * 0.36f).roundToInt()
+        val maxSafe = (minOf(root.width, root.height) / 4).coerceAtLeast(baseInset)
+        return (baseInset + extra).coerceAtMost(maxSafe)
+    }
+
     private fun coverRadius(holder: Any?, cover: View): Float? {
         val radius = call(holder, "getCornerRadius") as? Float ?: return null
         if (cover.width <= 0 || cover.height <= 0) return null
@@ -326,7 +343,9 @@ internal class ControlCenterTileLayoutHook(private val module: XposedModule) {
                     mediaRoot(chain.thisObject)?.let { root ->
                         chain.thisObject?.let { mediaHolders[root] = WeakReference(it) }
                         if (mainMedia(root)) {
-                            if (m.name == "updateMetaData") adapted[root]?.let { layoutMedia(root, it) }
+                            if (m.name == "updateMetaData" || m.name == "setCornerRadius" || m.name == "updateRadius") {
+                                adapted[root]?.let { layoutMedia(root, it) }
+                            }
                             syncCoverOutline(root)
                             syncEmptyMedia(root)
                         }
@@ -337,71 +356,136 @@ internal class ControlCenterTileLayoutHook(private val module: XposedModule) {
         }
     }
 
+    private data class TransitionFrameCache(
+        val snapshotRef: WeakReference<Any>,
+        val rootRef: WeakReference<View>,
+        val buttons: List<Triple<RectF, RectF, Pair<View, Boolean>>>,
+        val progressStart: RectF?,
+        val progressEnd: RectF?,
+        val expandedProgress: View?,
+        val deviceStart: RectF?,
+        val deviceView: View?,
+        val deviceVisible: Boolean,
+        var progressSynced: Boolean = false,
+    )
+
+    private val transitionCaches = WeakHashMap<Any, TransitionFrameCache>()
+
+    private fun layoutIfChanged(view: View, l: Int, t: Int, r: Int, b: Int) {
+        if (view.left != l || view.top != t || view.right != r || view.bottom != b) {
+            view.layout(l, t, r, b)
+        }
+    }
+
     /** The stock animator owns the clock and snapshots; only correct its custom-card endpoints. */
     private fun installMediaTransition(clazz: Class<*>) {
         val frame = clazz.getDeclaredMethod("frameCallback")
         runCatching { module.deoptimize(frame) }
         module.hook(frame).setExceptionMode(ExceptionMode.PROTECTIVE).setId("cc-tiles:media-transition").intercept { chain ->
             val result = chain.proceed()
-            val animator = chain.thisObject
-            val root = mediaRoot(field(animator, "fromView"))
-            val snapshot = field(animator, "animValue")
-            val fraction = field(animator, "size") as? Float
-            val delegate = field(animator, "contentController")
-            if (root != null && customMedia(root) && snapshot != null && fraction != null && delegate != null) {
-                // No second ValueAnimator and no scaling around a different pivot at hand-off.
-                listOf("Prev", "Play", "Next").forEach { name ->
-                    val start = call(snapshot, "getFromAudio$name")
-                    val end = call(snapshot, "getToAudio$name")
-                    val button = call(delegate, "getAv${name}View") as? View
-                    if (start != null && end != null && button != null) {
-                        val a = snapshotRect(start); val b = snapshotRect(end)
-                        val rect = interpolate(a, b, fraction)
-                        button.layout(rect.left.roundToInt(), rect.top.roundToInt(), rect.right.roundToInt(), rect.bottom.roundToInt())
-                        val id = name.lowercase(java.util.Locale.ROOT)
-                        button.alpha = if (find(root, "audio_container")?.visibility != View.VISIBLE || find(root, id)?.visibility != View.VISIBLE)
-                            fraction.coerceIn(0f, 1f) else 1f
+            val animator = chain.thisObject ?: return@intercept result
+            val snapshot = field(animator, "animValue") ?: return@intercept result
+            val fraction = field(animator, "size") as? Float ?: return@intercept result
+            val clamped = fraction.coerceIn(0f, 1f)
+
+            var cached = transitionCaches[animator]?.takeIf { it.snapshotRef.get() === snapshot }
+            if (cached == null) {
+                val root = mediaRoot(field(animator, "fromView"))
+                val delegate = field(animator, "contentController")
+                if (root == null || !customMedia(root) || delegate == null) return@intercept result
+                val audioVisible = find(root, "audio_container")?.visibility == View.VISIBLE
+                val buttons = buildList {
+                    listOf("Prev", "Play", "Next").forEach { name ->
+                        val start = call(snapshot, "getFromAudio$name")
+                        val end = call(snapshot, "getToAudio$name")
+                        val button = call(delegate, "getAv${name}View") as? View
+                        if (start != null && end != null && button != null) {
+                            val id = name.lowercase(java.util.Locale.ROOT)
+                            val sourceVisible = audioVisible && find(root, id)?.visibility == View.VISIBLE
+                            add(Triple(snapshotRect(start), snapshotRect(end), button to sourceVisible))
+                        }
                     }
                 }
                 val progress = mediaProgress[root]?.get()
                 val expanded = call(delegate, "getProgressContainerView") as? View
-                val end = call(snapshot, "getToProgressContainer")
-                if (progress != null && expanded != null && end != null) {
-                    val parent = expanded.parent as? View
-                    if (parent != null) {
-                        // Map the small row into the animated parent's current coordinate space.
-                        // Both endpoints show the same row, so it stays visible during the morph.
-                        val start = mapRect(root, RectF(progress.left.toFloat(), progress.top.toFloat(), progress.right.toFloat(), progress.bottom.toFloat()), parent)
-                        if (start != null) {
-                            val target = snapshotRect(end)
-                            val rect = interpolate(start, target, fraction)
-                            expanded.pivotX = 0f; expanded.pivotY = 0f
-                            expanded.scaleX = rect.width() / target.width().coerceAtLeast(1f)
-                            expanded.scaleY = rect.height() / target.height().coerceAtLeast(1f)
-                            val x = rect.left.roundToInt(); val y = rect.top.roundToInt()
-                            expanded.layout(x, y, x + target.width().roundToInt(), y + target.height().roundToInt())
-                            expanded.alpha = 1f
-                            val state = if (mediaEmpty(root)) Triple(0f, 0L, 0L) else readMediaProgress(root)
-                            state?.let {
-                                (find(expanded, "media_progress_bar") as? android.widget.SeekBar)?.let { bar ->
-                                    if (!bar.isPressed) bar.progress = (state.first * bar.max).roundToInt()
-                                }
-                                (find(expanded, "media_elapsed_time") as? android.widget.TextView)?.text = formatTime(state.second)
-                                (find(expanded, "media_total_time") as? android.widget.TextView)?.text = formatTime(state.third)
+                val endProg = call(snapshot, "getToProgressContainer")
+                val progParent = expanded?.parent as? View
+                val progStart = if (progress != null && progParent != null) {
+                    mapRect(root, RectF(progress.left.toFloat(), progress.top.toFloat(), progress.right.toFloat(), progress.bottom.toFloat()), progParent)
+                } else null
+                val progEnd = endProg?.let(::snapshotRect)
+
+                val device = call(delegate, "getDeviceIconView") as? View
+                val sourceDev = find(root, "device_icon")
+                val devVisible = !settings.mediaSourceIconHidden && sourceDev?.visibility == View.VISIBLE
+                val devParent = device?.parent as? View
+                val devStart = if (devVisible && sourceDev != null && devParent != null) {
+                    mapRect(root, RectF(sourceDev.left.toFloat(), sourceDev.top.toFloat(), sourceDev.right.toFloat(), sourceDev.bottom.toFloat()), devParent)
+                } else null
+
+                cached = TransitionFrameCache(
+                    snapshotRef = WeakReference(snapshot),
+                    rootRef = WeakReference(root),
+                    buttons = buttons,
+                    progressStart = progStart,
+                    progressEnd = progEnd,
+                    expandedProgress = expanded,
+                    deviceStart = devStart,
+                    deviceView = device,
+                    deviceVisible = devVisible,
+                )
+                transitionCaches[animator] = cached
+            }
+
+            // 每帧仅做纯算术插值，零反射扫描、零 View 树递归查找、零冗余 setText 重排。
+            cached.buttons.forEach { (a, b, pair) ->
+                val (button, sourceVisible) = pair
+                val l = (a.left + (b.left - a.left) * fraction).roundToInt()
+                val t = (a.top + (b.top - a.top) * fraction).roundToInt()
+                val r = (a.right + (b.right - a.right) * fraction).roundToInt()
+                val bt = (a.bottom + (b.bottom - a.bottom) * fraction).roundToInt()
+                layoutIfChanged(button, l, t, r, bt)
+                val targetAlpha = if (!sourceVisible) clamped else 1f
+                if (button.alpha != targetAlpha) button.alpha = targetAlpha
+            }
+            val expanded = cached.expandedProgress
+            val pStart = cached.progressStart
+            val pEnd = cached.progressEnd
+            if (expanded != null && pStart != null && pEnd != null) {
+                val left = pStart.left + (pEnd.left - pStart.left) * fraction
+                val top = pStart.top + (pEnd.top - pStart.top) * fraction
+                val w = (pStart.width() + (pEnd.width() - pStart.width()) * fraction)
+                val h = (pStart.height() + (pEnd.height() - pStart.height()) * fraction)
+                val targetW = pEnd.width().coerceAtLeast(1f)
+                val targetH = pEnd.height().coerceAtLeast(1f)
+                expanded.pivotX = 0f; expanded.pivotY = 0f
+                expanded.scaleX = w / targetW
+                expanded.scaleY = h / targetH
+                val x = left.roundToInt(); val y = top.roundToInt()
+                layoutIfChanged(expanded, x, y, x + targetW.roundToInt(), y + targetH.roundToInt())
+                if (expanded.alpha != 1f) expanded.alpha = 1f
+                if (!cached.progressSynced) {
+                    cached.progressSynced = true
+                    val root = cached.rootRef.get()
+                    if (root != null) {
+                        val state = if (mediaEmpty(root)) Triple(0f, 0L, 0L) else readMediaProgress(root)
+                        state?.let {
+                            (find(expanded, "media_progress_bar") as? android.widget.SeekBar)?.let { bar ->
+                                if (!bar.isPressed) bar.progress = (state.first * bar.max).roundToInt()
                             }
+                            (find(expanded, "media_elapsed_time") as? android.widget.TextView)?.text = formatTime(state.second)
+                            (find(expanded, "media_total_time") as? android.widget.TextView)?.text = formatTime(state.third)
                         }
                     }
                 }
-                val device = call(delegate, "getDeviceIconView") as? View
-                val source = find(root, "device_icon")
-                if (device != null && source != null) {
-                    // This icon is hidden at the expanded endpoint by OEM; interpolate its alpha.
-                    val alpha = if (settings.mediaSourceIconHidden || source.visibility != View.VISIBLE) 0f else 1f - fraction.coerceIn(0f, 1f)
-                    device.alpha = alpha
-                    if (alpha > 0f) {
-                        val parent = device.parent as? View
-                        val rect = parent?.let { mapRect(root, RectF(source.left.toFloat(), source.top.toFloat(), source.right.toFloat(), source.bottom.toFloat()), it) }
-                        if (rect != null) device.layout(rect.left.roundToInt(), rect.top.roundToInt(), rect.right.roundToInt(), rect.bottom.roundToInt())
+            }
+            val device = cached.deviceView
+            if (device != null) {
+                val alpha = if (!cached.deviceVisible) 0f else 1f - clamped
+                if (device.alpha != alpha) device.alpha = alpha
+                if (alpha > 0f) {
+                    cached.deviceStart?.let { rect ->
+                        layoutIfChanged(device, rect.left.roundToInt(), rect.top.roundToInt(), rect.right.roundToInt(), rect.bottom.roundToInt())
                     }
                 }
             }
@@ -733,7 +817,8 @@ internal class ControlCenterTileLayoutHook(private val module: XposedModule) {
         device?.let {
             if (it.visibility != View.GONE) {
                 val s = minOf((22*d).roundToInt(),root.width/4)
-                box(it,root.width-inset-s,inset,s,s)
+                val devInset = mediaDeviceInset(root, inset)
+                box(it, root.width - devInset - s, devInset, s, s)
             }
         }
         val textX = if(horizontal) coverX + coverSize + inset else inset
@@ -808,7 +893,8 @@ internal class ControlCenterTileLayoutHook(private val module: XposedModule) {
         syncCoverOutline(root)
         find(root, "device_icon")?.let { device ->
             val s = minOf(dp(20), width / 4)
-            box(device, root.width - inset - s, inset, s, s)
+            val devInset = mediaDeviceInset(root, inset)
+            box(device, root.width - devInset - s, devInset, s, s)
         }
         if (coverOnly) {
             mediaProgress.remove(root)?.get()?.let { (root as? ViewGroup)?.overlay?.remove(it) }
@@ -945,32 +1031,50 @@ internal class ControlCenterTileLayoutHook(private val module: XposedModule) {
         else "%02d:%02d".format(minutes, seconds % 60L)
     }
 
+    private val idCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val fieldCache = java.util.concurrent.ConcurrentHashMap<Pair<Class<*>, String>, java.util.Optional<Field>>()
+    private val methodCache = java.util.concurrent.ConcurrentHashMap<Triple<Class<*>, String, Int>, java.util.Optional<Method>>()
+
     private fun box(view: View, x: Int, y: Int, w: Int, h: Int) {
         if (view.visibility == View.GONE) return
         view.measure(View.MeasureSpec.makeMeasureSpec(w.coerceAtLeast(1), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h.coerceAtLeast(1), View.MeasureSpec.EXACTLY))
         view.layout(x,y,x+w.coerceAtLeast(1),y+h.coerceAtLeast(1))
     }
     private fun find(view: View, name: String): View? {
-        val id = view.resources.getIdentifier(name,"id","miui.systemui.plugin")
-        return if(id != 0) view.findViewById(id) else null
+        val id = idCache.computeIfAbsent(name) { view.resources.getIdentifier(it, "id", "miui.systemui.plugin") }
+        return if (id != 0) view.findViewById(id) else null
     }
 
-    private fun field(target: Any?, name: String): Any? = target?.let { findField(it.javaClass,name)?.get(it) }
-    private fun set(target: Any, name: String, value: Any) { (findField(target.javaClass,name) ?: error("Missing $name")).set(target,value) }
-    private fun findField(clazz: Class<*>, name: String): Field? = generateSequence(clazz) { it.superclass }
-        .mapNotNull { runCatching { it.getDeclaredField(name).apply { isAccessible = true } }.getOrNull() }.firstOrNull()
-    private fun method(clazz: Class<*>, name: String, count: Int): Method? = generateSequence(clazz) { it.superclass }
-        .mapNotNull { type -> type.declaredMethods.firstOrNull { it.name == name && it.parameterCount == count } }.firstOrNull()?.apply { isAccessible = true }
+    private fun field(target: Any?, name: String): Any? = target?.let { findField(it.javaClass, name)?.get(it) }
+    private fun set(target: Any, name: String, value: Any) { (findField(target.javaClass, name) ?: error("Missing $name")).set(target, value) }
+    private fun findField(clazz: Class<*>, name: String): Field? = fieldCache.computeIfAbsent(clazz to name) {
+        val found = generateSequence(clazz) { it.superclass }
+            .mapNotNull { runCatching { it.getDeclaredField(name).apply { isAccessible = true } }.getOrNull() }
+            .firstOrNull()
+        java.util.Optional.ofNullable(found)
+    }.orElse(null)
+    private fun method(clazz: Class<*>, name: String, count: Int): Method? = methodCache.computeIfAbsent(Triple(clazz, name, count)) {
+        val found = generateSequence(clazz) { it.superclass }
+            .mapNotNull { type -> type.declaredMethods.firstOrNull { it.name == name && it.parameterCount == count } }
+            .firstOrNull()?.apply { isAccessible = true }
+        java.util.Optional.ofNullable(found)
+    }.orElse(null)
     private fun call(target: Any?, name: String, vararg args: Any): Any? {
         target ?: return null
-        val m = generateSequence(target.javaClass) { it.superclass }.flatMap { it.declaredMethods.asSequence() }.firstOrNull { m ->
-            m.name == name && m.parameterCount == args.size && m.parameterTypes.zip(args).all { (type,arg) ->
-                type.isInstance(arg) || (type == Int::class.javaPrimitiveType && arg is Int) || (type == Boolean::class.javaPrimitiveType && arg is Boolean)
-            }
+        val m = if (args.isEmpty()) {
+            method(target.javaClass, name, 0)
+        } else {
+            generateSequence(target.javaClass) { it.superclass }.flatMap { it.declaredMethods.asSequence() }.firstOrNull { m ->
+                m.name == name && m.parameterCount == args.size && m.parameterTypes.zip(args).all { (type, arg) ->
+                    type.isInstance(arg) || (type == Int::class.javaPrimitiveType && arg is Int) || (type == Boolean::class.javaPrimitiveType && arg is Boolean)
+                }
+            }?.apply { isAccessible = true }
         } ?: return null
-        return m.apply { isAccessible = true }.invoke(target,*args)
+        return m.invoke(target, *args)
     }
     companion object {
+        @Volatile private var activeInstance: ControlCenterTileLayoutHook? = null
+        internal fun isCustomMediaActive(view: View): Boolean = activeInstance?.customMedia(view) == true
         private const val ADAPTER = "miui.systemui.controlcenter.panel.main.recyclerview.MainPanelAdapter"
         private const val QS_CARDS_CONTROLLER = "miui.systemui.controlcenter.panel.main.qs.QSCardsController"
         private const val MEDIA_HOLDER = "miui.systemui.controlcenter.panel.main.media.MediaPlayerController\$MediaPlayerViewHolder"

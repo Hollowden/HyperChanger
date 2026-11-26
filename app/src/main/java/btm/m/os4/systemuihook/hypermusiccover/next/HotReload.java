@@ -551,8 +551,6 @@ public final class HotReload {
             Main.installSystemUi(cl);
         } else if (AppleLyrics.PKG.equals(proc)) {
             AppleLyrics.handle(cl);
-        } else if ("com.xiaomi.subscreencenter".equals(proc)) {
-            RearScreen.handle(cl);
         } else if ("com.autonavi.minimap".equals(proc)
                 || "com.autonavi.minimap:locationservice".equals(proc)
                 || "com.autonavi.minimap:widgetProvider".equals(proc)) {

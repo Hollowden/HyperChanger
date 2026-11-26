@@ -5,7 +5,6 @@ package btm.m.os4.systemuihook
 import btm.m.os4.systemuihook.cloudcontrol.CloudControlPage
 import btm.m.os4.systemuihook.joyose.JoyoseSettings
 import btm.m.os4.systemuihook.joyose.JoyoseSettingsStore
-import btm.m.os4.systemuihook.privacy.PrivacyGuardPage
 import btm.m.os4.systemuihook.newnotificationcenter.IosNotificationCenterSettingsStore
 import btm.m.os4.systemuihook.newnotificationcenter.IosNotificationExpansionSettingsStore
 import btm.m.os4.systemuihook.newnotificationcenter.IosNotificationRefractionSettingsStore
@@ -327,10 +326,9 @@ private enum class PageId {
     DEVICE_PROFILE_PRESETS, DEVICE_PROFILE_CLOUD_PRESETS, CUSTOM_DEPTH_WALLPAPER,
     SETTINGS_FLOATING_SEARCH_PARAMETERS, SETTINGS_APPEARANCE_HOME, SETTINGS_APPEARANCE_DEVICE, SETTINGS_ENTRY_LABELS, SETTINGS_ENTRY_ICONS, SETTINGS_ENTRY_APPEARANCE, THEME_AND_COLOR, TUTORIAL_DEVICE_CARD, ABOUT, LICENSE, LANGUAGE, DONATE, OPEN, CONTRIBUTORS,
     LEGAL_DISCLAIMER, LEGAL_PRIVACY, LEGAL_USER_AGREEMENT,
-    SOFTWARE_UPDATE, UPDATE_LOG, REAR_SCREEN, REAR_SCREEN_SHELL, REAR_CUSTOM_CENTER, REAR_MUSIC_APPS, REAR_SWIPE_APP, REAR_MINI_PLAYER, OTHER, SIDEBAR, SIDEBAR_GLASS, PERSONAL_ASSISTANT, ASSISTANT_WIDGET_GLASS, CONTACTS_DIALER, CONTACTS_DIALER_BACKGROUND, PORTAL, PORTAL_MATERIAL, APP_NAVIGATION, RESTART_SCOPES, DISCLAIMER, SIMULATE_MEDIA_NOTIFICATION, SIMULATE_ISLAND, MODULE_PRESET_IMPORT_PREVIEW,
+    SOFTWARE_UPDATE, UPDATE_LOG, OTHER, SIDEBAR, SIDEBAR_GLASS, PERSONAL_ASSISTANT, ASSISTANT_WIDGET_GLASS, CONTACTS_DIALER, CONTACTS_DIALER_BACKGROUND, PORTAL, PORTAL_MATERIAL, APP_NAVIGATION, RESTART_SCOPES, DISCLAIMER, SIMULATE_MEDIA_NOTIFICATION, SIMULATE_ISLAND, MODULE_PRESET_IMPORT_PREVIEW,
     STATUS_MOBILE_NETWORK_TYPE_TUNING,
     CLOUD_CONTROL,
-    PRIVACY_GUARD,
 }
 
 private data class CategorySearchItem(
@@ -410,12 +408,6 @@ private fun categorySearchItems(): List<CategorySearchItem> = listOf(
         tr("category_search_framework_description", "调整小窗、音量、截图与系统服务行为。"),
         setOf(ScopeApplication.SETTINGS),
         PageId.SYSTEM_FRAMEWORK,
-    ),
-    CategorySearchItem(
-        tr("背屏", "背屏"),
-        tr("category_search_rear_screen_description", "解锁和自定义背屏应用、壁纸与媒体控件。"),
-        setOf(ScopeApplication.SUBSCREEN_CENTER, ScopeApplication.THEME_MANAGER, ScopeApplication.PERSONAL_ASSISTANT),
-        PageId.REAR_SCREEN,
     ),
     CategorySearchItem(
         tr("其他", "其他"),
@@ -514,12 +506,6 @@ private fun categorySearchItems(): List<CategorySearchItem> = listOf(
         PageId.RASTER_WALLPAPER,
     ),
     CategorySearchItem(
-        tr("自定义背屏中心", "自定义背屏中心"),
-        tr("category_search_rear_center_description", "查看和管理已导入的自定义背屏应用。"),
-        setOf(ScopeApplication.SUBSCREEN_CENTER),
-        PageId.REAR_CUSTOM_CENTER,
-    ),
-    CategorySearchItem(
         tr("相机调色板", "相机调色板"),
         tr("category_search_camera_palette_description", "自定义相机取景器中的调色板和色彩保护。"),
         setOf(ScopeApplication.CAMERA, ScopeApplication.GALLERY, ScopeApplication.MEDIA_EDITOR),
@@ -572,8 +558,6 @@ private fun categoryDeepSearchItems(): List<CategorySearchItem> {
         entry("导航与通知预设", "导航与通知预设", PageId.SHADE_PRESETS, ui),
         entry("联系人与拨号背景", "联系人与拨号背景", PageId.CONTACTS_DIALER_BACKGROUND, ScopeApplication.CONTACTS_DIALER),
         entry("侧边栏玻璃参数", "侧边栏玻璃参数", PageId.SIDEBAR_GLASS, ScopeApplication.SECURITY_CENTER),
-        entry("rearScreenshotShellTitle", "背屏截图壳", PageId.REAR_SCREEN_SHELL, ScopeApplication.SUBSCREEN_CENTER),
-        entry("rearSwipeAppTitle", "背屏左滑应用", PageId.REAR_SWIPE_APP, ScopeApplication.SUBSCREEN_CENTER),
         entry("设备信息预设", "设备信息预设", PageId.DEVICE_PROFILE_PRESETS, settings),
         entry("设备信息云预设", "设备信息云预设", PageId.DEVICE_PROFILE_CLOUD_PRESETS, settings),
         entry("settingsEntryAppearance", "设置入口外观", PageId.SETTINGS_ENTRY_APPEARANCE, settings),
@@ -605,9 +589,6 @@ private fun categoryDeepSearchItems(): List<CategorySearchItem> {
         entry("传送门材质调整", "传送门材质调整", PageId.PORTAL_MATERIAL, ScopeApplication.PORTAL),
         entry("环境检测", "环境检测", PageId.ENVIRONMENT_DETECTION, ScopeApplication.SECURITY_CENTER),
         entry("cloudControlTitle", "云控", PageId.CLOUD_CONTROL, ScopeApplication.SECURITY_CENTER),
-        entry("privacyGuardTitle", "预装隐私拦截", PageId.PRIVACY_GUARD, ScopeApplication.HTML_VIEWER),
-        entry("背屏音乐控件白名单", "背屏音乐控件白名单", PageId.REAR_MUSIC_APPS, ScopeApplication.SUBSCREEN_CENTER),
-        entry("rear_mini_player_title", "在背屏启动小折叠版迷你音乐播放器", PageId.REAR_MINI_PLAYER, ScopeApplication.SUBSCREEN_CENTER),
     )
 }
 
@@ -697,35 +678,15 @@ private fun categorySearchKeywords(page: PageId?): String = when (page) {
     PageId.PORTAL, PageId.PORTAL_MATERIAL -> "传送门 背景 卡片 识屏 portal background card ocr"
     PageId.CAMERA, PageId.CAMERA_PALETTE -> "相机 相册 编辑 调色板 camera gallery editor palette"
     PageId.SYSTEM_UPDATE -> "系统更新 自动更新 伪装版本 版本伪装 伪装SOTA版本 禁用更新 移除OTA限制 ota system updater version spoof fake version"
-    PageId.REAR_SCREEN, PageId.REAR_CUSTOM_CENTER -> "背屏 副屏 自定义 中心 rear subscreen display custom center"
-    PageId.REAR_MUSIC_APPS -> "背屏 音乐 白名单 rear music whitelist"
-    PageId.REAR_MINI_PLAYER -> "背屏 迷你 播放器 rear mini player"
     PageId.SIDEBAR -> "侧边栏 游戏 视频 工具箱 sidebar game video toolbox"
     PageId.PERSONAL_ASSISTANT, PageId.ASSISTANT_WIDGET_GLASS -> "负一屏 小部件 壁纸 模糊 app vault assistant widget wallpaper blur"
     PageId.CONTACTS_DIALER -> "拨号 通话 联系人 背景 contacts dialer call background"
     PageId.APP_NAVIGATION -> "应用 底部导航 底栏 标签栏 liquid glass bottom navigation tab bar"
     PageId.ENVIRONMENT_DETECTION -> "环境检测 root lsposed xposed bootloader environment detection"
     PageId.CLOUD_CONTROL -> "云控 cloud control"
-    PageId.PRIVACY_GUARD -> "预装 隐私 拦截 privacy guard"
     PageId.OTHER -> "其他 屏幕录制 健康 互传 screen recorder health airdrop"
     else -> ""
 }
-
-private data class CustomRearScreenApp(
-    val productId: String,
-    val name: String,
-    val iconPath: String,
-    val extractedPath: String,
-    val runtimePath: String,
-)
-
-private data class CustomRearScreenImportPreview(
-    val uri: Uri,
-    val preview: ImageBitmap?,
-    val icon: ImageBitmap?,
-    val name: String,
-    val description: String,
-)
 
 private data class ShadePresetActions(
     val userPresets: List<ShadePreset>,
@@ -755,13 +716,6 @@ private fun suggestedScopesForHookChange(before: HookSettings, after: HookSettin
     }
     if (changedNames.any { it.contains("wallpaper", true) }) scopes += ScopeApplication.WALLPAPER
     if (changedNames.any { it.contains("theme", true) }) scopes += ScopeApplication.THEME_MANAGER
-    if (changedNames.any { it.contains("rear", true) || it.contains("subscreen", true) }) {
-        scopes += setOf(
-            ScopeApplication.SUBSCREEN_CENTER,
-            ScopeApplication.THEME_MANAGER,
-            ScopeApplication.PERSONAL_ASSISTANT,
-        )
-    }
     if (changedNames.any { it.contains("xiaoai", true) }) scopes += ScopeApplication.SUPER_XIAOAI_IME
     return scopes
 }
@@ -797,8 +751,6 @@ private fun Root(
                 !oobePreferences.contains("completed_version"),
         )
     }
-    val musicStore = remember(context) { MusicControlSettingsStore(context) }
-    var musicWhitelist by remember { mutableStateOf(musicStore.apps) }
     val screenRecorderStore = remember(context) { ScreenRecorderSettingsStore(context) }
     var screenRecorder by remember { mutableStateOf(screenRecorderStore.settings) }
     val dockStore = remember(context) { DockSettingsStore(context) }
@@ -1043,7 +995,6 @@ private fun Root(
         val previousCameras = cameras.settings
         val previousDeviceProfile = deviceProfiles.settings
         val previousAppearance = appearances.settings
-        val previousMusicWhitelist = musicStore.apps
         val previousDockSettings = dockStore.settings
         val previousHomeRecentsSettings = homeRecentsStore.settings
         val previousHomeMultiSplitSettings = homeMultiSplitStore.settings
@@ -1057,7 +1008,6 @@ private fun Root(
             cameras.reload()
             deviceProfiles.reload()
             appearances.reload()
-            musicStore.reload()
             dockStore.reload()
             homeRecentsStore.reload()
             homeMultiSplitStore.reload()
@@ -1069,7 +1019,6 @@ private fun Root(
             cameraSettings = cameras.settings
             deviceProfile = deviceProfiles.settings
             appearance = appearances.settings
-            musicWhitelist = musicStore.apps
             dockSettings = dockStore.settings
             homeRecentsSettings = homeRecentsStore.settings
             homeMultiSplitSettings = homeMultiSplitStore.settings
@@ -1097,9 +1046,6 @@ private fun Root(
             )
             if (previousDeviceProfile != deviceProfile || previousAppearance != appearance) {
                 markRestartTargets(setOf(ScopeApplication.SETTINGS))
-            }
-            if (previousMusicWhitelist != musicWhitelist) {
-                markRestartTargets(setOf(ScopeApplication.SUBSCREEN_CENTER))
             }
             if (previousDockSettings != dockSettings) markRestartTargets(setOf(ScopeApplication.DESKTOP))
             if (previousHomeRecentsSettings != homeRecentsSettings || previousHomeMultiSplitSettings != homeMultiSplitSettings || previousHomeFolderSettings != homeFolderSettings || previousHomeMaterialSettings != homeMaterialSettings) {
@@ -1210,8 +1156,6 @@ private fun Root(
                 ControlCenterTopButtonsPlacementSettingsStore(context).syncRemote(it)
                 ControlCenterTopButtonsGeometrySettingsStore(context).syncRemote(it)
                 SuperXiaoAiInputGlassSettingsStore(context).syncRemote(it)
-                RearScreenGestureSettingsStore(context).syncRemote(it)
-                RearMiniPlayerSettingsStore(context).syncRemote(it)
                 navigation.syncRemote(it)
                 lockscreenCapsules.syncRemote(it)
                 cameras.syncRemote(it)
@@ -1237,7 +1181,6 @@ private fun Root(
                 IslandSpacingSettingsStore(context).syncRemote(it)
                 DynamicIslandAppearanceSettingsStore(context).syncRemote(it)
                 LockscreenFaceUnlockSettingsStore(context).syncRemote(it)
-                musicStore.syncRemote(it)
                 HomeGlassSettingsStore(context).syncRemote(it)
                 dockStore.syncRemote(it)
                 homeRecentsStore.syncRemote(it)
@@ -1259,8 +1202,7 @@ private fun Root(
                 deviceProfile = deviceProfiles.settings
                 appearance = appearances.settings
                 airDropSettings = airDrop.settings
-                musicWhitelist = musicStore.apps
-                dockSettings = dockStore.settings
+                    dockSettings = dockStore.settings
                 homeRecentsSettings = homeRecentsStore.settings
                 homeMultiSplitSettings = homeMultiSplitStore.settings
                 homeFolderSettings = homeFolderStore.settings
@@ -1323,7 +1265,7 @@ private fun Root(
             )
         } else {
         Shell(
-            settings, navigationSettings, lockscreenCapsuleSettings, cameraSettings, deviceProfile, appearance, musicWhitelist, screenRecorder, airDropSettings,
+            settings, navigationSettings, lockscreenCapsuleSettings, cameraSettings, deviceProfile, appearance, screenRecorder, airDropSettings,
             dockSettings, homeRecentsSettings, homeFolderSettings, homeMaterialSettings, service,
             appThemeStore = appThemeStore,
             update = { transform ->
@@ -1419,12 +1361,6 @@ private fun Root(
                 appearance = appearances.settings
                 if (before != appearance) markRestartTargets(setOf(ScopeApplication.SETTINGS))
             },
-            updateMusicWhitelist = { next ->
-                val before = musicStore.apps
-                musicStore.update(service, next)
-                musicWhitelist = musicStore.apps
-                if (before != musicWhitelist) markRestartTargets(setOf(ScopeApplication.SUBSCREEN_CENTER))
-            },
             updateScreenRecorder = { transform ->
                 val before = screenRecorderStore.settings
                 screenRecorderStore.update(service, transform(screenRecorderStore.settings))
@@ -1470,9 +1406,9 @@ private fun Root(
                 navigation.reload()
                 navigationSettings = navigation.settings
                 hooks.reload(); lockscreenCapsules.reload(); cameras.reload(); deviceProfiles.reload(); appearances.reload()
-                musicStore.reload(); dockStore.reload(); homeRecentsStore.reload(); homeMultiSplitStore.reload(); homeFolderStore.reload(); homeMaterialStore.reload()
+                dockStore.reload(); homeRecentsStore.reload(); homeMultiSplitStore.reload(); homeFolderStore.reload(); homeMaterialStore.reload()
                 settings = hooks.settings; lockscreenCapsuleSettings = lockscreenCapsules.settings; cameraSettings = cameras.settings
-                deviceProfile = deviceProfiles.settings; appearance = appearances.settings; musicWhitelist = musicStore.apps
+                deviceProfile = deviceProfiles.settings; appearance = appearances.settings
                 dockSettings = dockStore.settings; homeRecentsSettings = homeRecentsStore.settings; homeMultiSplitSettings = homeMultiSplitStore.settings
                 homeFolderSettings = homeFolderStore.settings; homeMaterialSettings = homeMaterialStore.settings
                 Toast.makeText(context, tr("已恢复默认配置", "已恢复默认配置"), Toast.LENGTH_SHORT).show()
@@ -1596,7 +1532,6 @@ private fun Shell(
     cameras: CameraSettings,
     deviceProfile: DeviceProfileSettings,
     appearance: SettingsAppearanceSettings,
-    musicWhitelist: Set<String>,
     screenRecorder: ScreenRecorderSettings,
     airDropSettings: AirDropSettings,
     dockSettings: DockSettings,
@@ -1621,7 +1556,6 @@ private fun Shell(
     updateCamera: ((CameraSettings) -> CameraSettings) -> Unit,
     updateDeviceProfile: ((DeviceProfileSettings) -> DeviceProfileSettings) -> Unit,
     updateAppearance: ((SettingsAppearanceSettings) -> SettingsAppearanceSettings) -> Unit,
-    updateMusicWhitelist: (Set<String>) -> Unit,
     updateScreenRecorder: (((ScreenRecorderSettings) -> ScreenRecorderSettings) -> Unit),
     updateAirDrop: (((AirDropSettings) -> AirDropSettings) -> Unit),
     suggestedRestartTargets: Set<ScopeApplication>,
@@ -1841,9 +1775,9 @@ private fun Shell(
             LocalPageBackSuppressed provides if (isTop) ({ value -> suppressPageBack = value }) else ({ }),
         ) {
             Detail(
-                detailPage, settings, lockscreenCapsuleSettings, cameras, deviceProfile, appearance, musicWhitelist, dockSettings, homeRecentsSettings, homeFolderSettings, homeMaterialSettings, airDropSettings,
+                detailPage, settings, lockscreenCapsuleSettings, cameras, deviceProfile, appearance, dockSettings, homeRecentsSettings, homeFolderSettings, homeMaterialSettings, airDropSettings,
                 update, updateLockscreenCapsule, updateDock, updateHomeRecents, updateHomeFolder, updateHomeMaterial, updateCamera,
-                updateDeviceProfile, updateAppearance, updateMusicWhitelist, presetActions, updateAirDrop,
+                updateDeviceProfile, updateAppearance, presetActions, updateAirDrop,
                 settingsApp = settingsApp, updateSettingsApp = updateSettingsApp, superXiaoAi = superXiaoAi, updateSuperXiaoAi = updateSuperXiaoAi, systemUpdate = systemUpdate, updateSystemUpdate = updateSystemUpdate,
                 appThemeStore = appThemeStore, service = service,
                 openPage = openNestedPage, back = dismissPage,
@@ -2315,7 +2249,6 @@ private fun CategoryHome(
                         CategoryPageEntry(tr("相机与相册编辑", "相机与相册编辑"), PageId.CAMERA),
                         CategoryPageEntry(tr("系统更新", "系统更新"), PageId.SYSTEM_UPDATE),
                         CategoryPageEntry(tr("系统设置", "系统设置"), PageId.SYSTEM_SETTINGS),
-                        CategoryPageEntry(tr("背屏", "背屏"), PageId.REAR_SCREEN),
                     ),
                     enabled = connected,
                     open = open,
@@ -2469,11 +2402,6 @@ private fun OtherPage(
                     onClick = { open(PageId.CLOUD_CONTROL) },
                 )
                 SharedViewArrowPreference(
-                    title = tr("privacyGuardTitle", "预装隐私拦截"),
-                    summary = tr("实验性功能", "实验性功能"),
-                    onClick = { open(PageId.PRIVACY_GUARD) },
-                )
-                SharedViewArrowPreference(
                     title = tr("应用底部导航", "应用底部导航"),
                     onClick = { open(PageId.APP_NAVIGATION) },
                 )
@@ -2563,863 +2491,6 @@ private fun documentTreePath(uri: Uri): String? = runCatching {
         File(Environment.getExternalStorageDirectory(), split[1]).absolutePath
     } else null
 }.getOrNull()
-
-private data class RearApp(
-    val info: ApplicationInfo,
-    val label: String,
-    val packageName: String,
-    val isSystem: Boolean,
-)
-
-@Composable
-private fun rememberRearApps(): List<RearApp> {
-    val context = LocalContext.current
-    val packageManager = context.packageManager
-    val configuration = LocalConfiguration.current
-    val locales = remember(context, configuration) { applicationLabelLocales(context) }
-    val apps by produceState<List<RearApp>>(initialValue = emptyList(), context, locales.toLanguageTags()) {
-        value = withContext(Dispatchers.IO) {
-            val rootPackages = runRootPackageList()
-            val installed = if (rootPackages.isNotEmpty()) {
-                rootPackages.mapNotNull { packageName ->
-                    runCatching { packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA) }.getOrNull()
-                }.ifEmpty { packageManager.getInstalledApplications(PackageManager.GET_META_DATA) }
-            } else {
-                packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-            }
-            installed.distinctBy { it.packageName }
-                .map { info ->
-                    RearApp(
-                        info = info,
-                        label = localizedApplicationLabel(context, info, locales),
-                        packageName = info.packageName,
-                        isSystem = (info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0,
-                    )
-                }
-                .sortedWith(compareBy<RearApp, String>(String.CASE_INSENSITIVE_ORDER) { it.label }.thenBy { it.packageName })
-        }
-    }
-    return apps
-}
-
-private fun runRootPackageList(): Set<String> = runCatching {
-    val process = ProcessBuilder("su", "-c", "pm list packages --user 0")
-        .redirectErrorStream(true)
-        .start()
-    if (!process.waitFor(5, TimeUnit.SECONDS) || process.exitValue() != 0) {
-        process.destroyForcibly()
-        return@runCatching emptySet()
-    }
-    val output = process.inputStream.bufferedReader().use { it.readText() }
-    output.lineSequence()
-        .mapNotNull { line -> line.trim().removePrefix("package:").takeIf { it.isNotEmpty() } }
-        .toSet()
-}.getOrDefault(emptySet())
-
-private fun importCustomRearScreenApp(context: Context, uri: Uri): Result<String> = runCatching {
-    val token = UUID.randomUUID().toString()
-    val staged = File(context.cacheDir, "rear-screen-$token.mtz")
-    context.contentResolver.openInputStream(uri)?.use { input ->
-        FileOutputStream(staged).use { output -> input.copyTo(output) }
-    } ?: error("无法读取所选文件")
-    val productId = token
-    val escaped = staged.absolutePath.replace("'", "'\\''")
-    // ThemeManager's actual AI-app storage path (documented in bbb.txt) is shared
-    // external storage, not the theme_magic runtime directory.
-    val aiAppRoot = "/storage/emulated/0/Android/data/com.android.thememanager/files/MIUI/.ai_app"
-    val command = "destination=\"$aiAppRoot/${productId}_extracted\"; runtime=/data/system/theme_magic/users/0/rearScreenAiApp_Theme/$productId; " +
-        "mkdir -p \"\$destination/app\" \"\$destination/preview\"; " +
-        "if unzip -l '$escaped' 2>/dev/null | grep -q 'description.xml'; then unzip -o '$escaped' -d \"\$destination\" >/dev/null; " +
-        "elif unzip -l '$escaped' 2>/dev/null | grep -q 'manifest.xml'; then cp '$escaped' \"\$destination/rearscreen\"; " +
-        "else cp '$escaped' \"\$destination/rearscreen\"; fi; " +
-        "found=\$(find \"\$destination\" -type f -name rearscreen -print -quit); " +
-        "if [ -n \"\$found\" ] && [ \"\$found\" != \"\$destination/rearscreen\" ]; then cp -a \"\$(dirname \"\$found\")\"/. \"\$destination\"/; fi; " +
-        "mkdir -p \"\$runtime\"; cp \"\$destination/rearscreen\" \"\$runtime/rearScreen.mrc\"; " +
-        "[ -f \"\$destination/app/app_icon.png\" ] && cp \"\$destination/app/app_icon.png\" \"\$runtime/app_icon.png\"; " +
-        "preview=\$(find \"\$destination/preview\" -type f -print -quit); [ -n \"\$preview\" ] && cp \"\$preview\" \"\$runtime/preview.png\"; " +
-        "find \"\$destination\" \"\$runtime\" -type d -exec chmod 755 {} \\; ; find \"\$destination\" \"\$runtime\" -type f -exec chmod 644 {} \\; ; " +
-        "am broadcast -a com.android.thememanager.action.REAR_SCREEN_AI_APP_CHANGED >/dev/null 2>&1 || true"
-    val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-    val output = process.inputStream.bufferedReader().use { it.readText() }
-    if (!process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS) || process.exitValue() != 0) {
-        process.destroyForcibly()
-        error("需要 root 权限或系统目录不可写")
-    }
-    staged.delete()
-    productId
-}.onFailure { stagedError -> Log.w("HyperChanger", "Custom rear-screen import failed", stagedError) }
-
-@Composable
-private fun RearScreen(
-    settings: HookSettings,
-    update: ((HookSettings) -> HookSettings) -> Unit,
-    selectedPackages: Set<String>,
-    onSelectedPackagesChange: (Set<String>) -> Unit,
-    open: (PageId) -> Unit,
-    back: () -> Unit,
-) = AppPage(tr("\u80cc\u5c4f", "\u80cc\u5c4f"), back, restartScopes = setOf(
-    ScopeApplication.SUBSCREEN_CENTER,
-    ScopeApplication.THEME_MANAGER,
-    ScopeApplication.PERSONAL_ASSISTANT,
-)) { padding, scroll ->
-    val context = LocalContext.current
-    val service by HookApplication.service.collectAsState()
-    val rearScreenThemeApplyStore = remember(context) { RearScreenThemeApplySettingsStore(context) }
-    val miniPlayerStore = remember(context) { RearMiniPlayerSettingsStore(context) }
-    var allowAllActivities by remember { mutableStateOf(miniPlayerStore.allowAllActivities) }
-    val (gestureSettings, updateGestureSettings) = rememberRearScreenGestureSettings()
-    var showGestureAppActions by remember { mutableStateOf(false) }
-    val configuration = LocalConfiguration.current
-    val labelLocales = remember(context, configuration) { applicationLabelLocales(context) }
-    val gestureAppLabel = remember(context, gestureSettings.packageName, labelLocales.toLanguageTags()) {
-        runCatching {
-            localizedApplicationLabel(context,
-                context.packageManager.getApplicationInfo(gestureSettings.packageName, 0), labelLocales)
-        }.getOrDefault(gestureSettings.packageName)
-    }
-    WindowDialog(show = showGestureAppActions && gestureSettings.enabled, onDismissRequest = { showGestureAppActions = false }) {
-        Text(gestureAppLabel, style = MiuixTheme.textStyles.title3)
-        Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlassDialogButton(onClick = {
-                showGestureAppActions = false
-                open(PageId.REAR_SWIPE_APP)
-            }, modifier = Modifier.fillMaxWidth()) { Text(tr("编辑", "编辑")) }
-            GlassDialogButton(onClick = {
-                updateGestureSettings { it.copy(packageName = "") }
-                showGestureAppActions = false
-            }, modifier = Modifier.fillMaxWidth()) { Text(tr("清除", "清除")) }
-            GlassDialogButton(onClick = { showGestureAppActions = false }, modifier = Modifier.fillMaxWidth()) { Text(tr("取消", "取消")) }
-        }
-    }
-    var rearScreenThemeApplyFix by remember { mutableStateOf(rearScreenThemeApplyStore.enabled) }
-    val wallpaperLimitStore = remember(context) { RearScreenWallpaperLimitSettingsStore(context) }
-    var wallpaperLimit by remember { mutableStateOf(wallpaperLimitStore.settings) }
-    var showWallpaperLimitDialog by remember { mutableStateOf(false) }
-    fun updateWallpaperLimit(transform: (RearScreenWallpaperLimitSettings) -> RearScreenWallpaperLimitSettings) {
-        wallpaperLimitStore.update(service, transform)
-        wallpaperLimit = wallpaperLimitStore.settings
-    }
-    LaunchedEffect(service) {
-        service?.let {
-            rearScreenThemeApplyStore.syncRemote(it)
-            miniPlayerStore.syncRemote(it)
-            allowAllActivities = miniPlayerStore.allowAllActivities
-            rearScreenThemeApplyFix = rearScreenThemeApplyStore.enabled
-            wallpaperLimitStore.syncRemote(it)
-            wallpaperLimit = wallpaperLimitStore.settings
-        }
-    }
-    RearScreenWallpaperLimitDialog(
-        show = showWallpaperLimitDialog && wallpaperLimit.enabled,
-        current = wallpaperLimit.custom,
-        onDismiss = { showWallpaperLimitDialog = false },
-        onSave = { value ->
-            updateWallpaperLimit { it.copy(custom = value) }
-            showWallpaperLimitDialog = false
-        },
-    )
-    val apps = rememberRearApps()
-    AppList(padding, scroll, 28) {
-        item {
-            Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
-                SharedViewArrowPreference(
-                    title = tr("rear_mini_player_title", "在背屏启动小折叠版迷你音乐播放器"),
-                    summary = tr("rear_mini_player_entry", "将网易云音乐原生迷你播放器投放到背屏。"),
-                    onClick = { open(PageId.REAR_MINI_PLAYER) },
-                )
-                SharedViewArrowPreference(
-                    title = tr("rear_screenshot_shell_title", "自定义带壳截图外壳样式"),
-                    summary = tr("rear_screenshot_shell_entry", "在截屏应用中自定义背屏带壳截图的聚焦和完整样式。"),
-                    onClick = { open(PageId.REAR_SCREEN_SHELL) },
-                )
-                SwitchPreference(
-                    title = tr("rear_allow_all_activities", "强制允许所有 Activity 可以在背屏上被打开"),
-                    summary = tr("rear_allow_all_activities_hint", "需要勾选系统框架（system）作用域并手动重启设备。放宽背屏 Activity 白名单和显示屏 1 的启动限制；不保证所有应用布局适配。"),
-                    checked = allowAllActivities,
-                    onCheckedChange = {
-                        miniPlayerStore.updateAllowAllActivities(service, it)
-                        allowAllActivities = it
-                    },
-                )
-            }
-        }
-        item {
-            Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
-                SwitchPreference(
-                    title = tr("开启左滑手势", "开启左滑手势"),
-                    summary = tr("从背屏右侧向左滑动，打开所选应用。", "从背屏右侧向左滑动，打开所选应用。"),
-                    checked = gestureSettings.enabled,
-                    onCheckedChange = { enabled ->
-                        updateGestureSettings { it.copy(enabled = enabled) }
-                        if (!enabled) showGestureAppActions = false
-                    },
-                )
-                AnimatedVisibility(
-                    visible = gestureSettings.enabled,
-                    enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-                    exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-                ) {
-                    SharedViewArrowPreference(
-                        title = tr("左滑启动应用", "左滑启动应用"),
-                        summary = gestureAppLabel.ifBlank { tr("未选择应用", "未选择应用") },
-                        onClick = {
-                            if (gestureSettings.packageName.isBlank()) open(PageId.REAR_SWIPE_APP)
-                            else showGestureAppActions = true
-                        },
-                    )
-                }
-            }
-        }
-        item {
-            Group(tr("解锁 AI 功能", "解锁 AI 功能")) {
-                SwitchPreference(
-                    title = tr("解锁 Xiaomi 18 Pro 系列 AI 背屏功能", "解锁 Xiaomi 18 Pro 系列 AI 背屏功能"),
-                    summary = tr("需要同时勾选并重启“背屏”、“主题壁纸”和“智能助理”三个作用域。", "需要同时勾选并重启“背屏”、“主题壁纸”和“智能助理”三个作用域。"),
-                    checked = settings.unlockXiaomi18RearScreenAi,
-                    onCheckedChange = { enabled -> update { it.copy(unlockXiaomi18RearScreenAi = enabled) } },
-                )
-                SwitchPreference(
-                    title = tr("去除自定义背屏限制和校验", "去除自定义背屏限制和校验"),
-                    summary = tr("放宽 ThemeManager 与 SubScreenCenter 对自定义 AI 背屏应用的限制。", "放宽 ThemeManager 与 SubScreenCenter 对自定义 AI 背屏应用的限制。"),
-                    checked = settings.removeCustomRearScreenRestrictions,
-                    onCheckedChange = { enabled -> update { it.copy(removeCustomRearScreenRestrictions = enabled) } },
-                )
-                SharedViewArrowPreference(
-                    title = tr("自定义背屏中心", "自定义背屏中心"),
-                    summary = tr("查看和管理已导入的自定义背屏应用", "查看和管理已导入的自定义背屏应用"),
-                    onClick = { open(PageId.REAR_CUSTOM_CENTER) },
-                )
-            }
-        }
-        item {
-            Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
-                SwitchPreference(
-                    title = tr("主题破解后应用失败", "主题破解后应用失败"),
-                    summary = tr(
-                        "修复主题破解与背屏主题、壁纸授权流程的冲突，保留普通主题破解。需勾选主题壁纸作用域，重启主题壁纸后生效。",
-                        "修复主题破解与背屏主题、壁纸授权流程的冲突，保留普通主题破解。需勾选主题壁纸作用域，重启主题壁纸后生效。",
-                    ),
-                    checked = rearScreenThemeApplyFix,
-                    onCheckedChange = { enabled ->
-                        rearScreenThemeApplyStore.update(service, enabled)
-                        rearScreenThemeApplyFix = enabled
-                    },
-                )
-            }
-        }
-        item {
-            Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp) {
-                SwitchPreference(
-                    title = tr("自定义背屏壁纸上限", "自定义背屏壁纸上限"),
-                    summary = tr(
-                        "系统默认最多 15 张，NFC 卡片不计入。需勾选主题壁纸作用域，重启主题壁纸后生效。",
-                        "系统默认最多 15 张，NFC 卡片不计入。需勾选主题壁纸作用域，重启主题壁纸后生效。",
-                    ),
-                    checked = wallpaperLimit.enabled,
-                    onCheckedChange = { value ->
-                        updateWallpaperLimit { it.copy(enabled = value) }
-                        if (!value) showWallpaperLimitDialog = false
-                    },
-                )
-                AnimatedVisibility(
-                    visible = wallpaperLimit.enabled,
-                    enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-                    exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-                ) {
-                    Column {
-                        OverlayDropdownPreference(
-                            title = tr("背屏壁纸数量上限", "背屏壁纸数量上限"),
-                            items = listOf(
-                                tr("50", "50"), tr("60", "60"), tr("80", "80"), tr("100", "100"),
-                                tr("自定义", "自定义"),
-                            ),
-                            selectedIndex = wallpaperLimit.mode,
-                            onSelectedIndexChange = { value -> updateWallpaperLimit { it.copy(mode = value) } },
-                        )
-                        AnimatedVisibility(
-                            visible = wallpaperLimit.mode == REAR_WALLPAPER_LIMIT_CUSTOM_MODE,
-                            enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .96f),
-                            exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = .96f),
-                        ) {
-                            SharedViewArrowPreference(
-                                title = tr("自定义背屏壁纸数量", "自定义背屏壁纸数量"),
-                                summary = tr("%d 张", "%d 张").format(wallpaperLimit.custom),
-                                onClick = { showWallpaperLimitDialog = true },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Group(tr("\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6", "\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6")) {
-                SharedViewArrowPreference(
-                    title = tr("\u6dfb\u52a0\u5e94\u7528\u5230\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6\u767d\u540d\u5355", "\u6dfb\u52a0\u5e94\u7528\u5230\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6\u767d\u540d\u5355"),
-                    onClick = { open(PageId.REAR_MUSIC_APPS) },
-                )
-            }
-        }
-        item {
-            Group(tr("\u5df2\u7ecf\u6dfb\u52a0\u7684\u5e94\u7528", "\u5df2\u7ecf\u6dfb\u52a0\u7684\u5e94\u7528")) {
-                val selected = apps.filter { it.packageName in selectedPackages }
-                if (selected.isEmpty()) {
-                    Text(
-                        tr("\u6682\u65e0\u5df2\u6dfb\u52a0\u7684\u5e94\u7528", "\u6682\u65e0\u5df2\u6dfb\u52a0\u7684\u5e94\u7528"),
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                } else {
-                    selected.forEach { app ->
-                        RearAppCard(
-                            app = app,
-                            checked = true,
-                            onCheckedChange = {
-                                onSelectedPackagesChange(selectedPackages - app.packageName)
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CustomRearScreenCenter(back: () -> Unit) {
-    val context = LocalContext.current
-    var apps by remember { mutableStateOf<List<CustomRearScreenApp>>(emptyList()) }
-    var selected by remember { mutableStateOf<CustomRearScreenApp?>(null) }
-    var confirmDelete by remember { mutableStateOf<CustomRearScreenApp?>(null) }
-    var selectionMode by remember { mutableStateOf(false) }
-    var selectedIds by remember { mutableStateOf(emptySet<String>()) }
-    var importPreview by remember { mutableStateOf<CustomRearScreenImportPreview?>(null) }
-    var importError by remember { mutableStateOf<String?>(null) }
-    var refreshKey by remember { mutableIntStateOf(0) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        runCatching { readCustomRearScreenImportPreview(context, uri) }
-            .onSuccess { importPreview = it; importError = null }
-            .onFailure { importError = it.message ?: tr("无法读取压缩文件", "无法读取压缩文件") }
-    }
-    LaunchedEffect(refreshKey) {
-        apps = withContext(Dispatchers.IO) { scanCustomRearScreenApps(context) }
-    }
-    fun closeSelection() {
-        selectionMode = false
-        selectedIds = emptySet()
-    }
-    fun toggleSelection(id: String) {
-        selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id
-    }
-    BackHandler(enabled = selectionMode) { closeSelection() }
-    AppPage(
-        title = tr("自定义背屏中心", "自定义背屏中心"),
-        onBack = back,
-        actions = {
-            AnimatedVisibility(visible = !selectionMode) {
-                GlassToolbarIconButton(icon = MiuixIcons.Regular.Refresh, description = tr("刷新", "刷新"), onClick = { refreshKey++ })
-            }
-        },
-        floatingToolbarPosition = ToolbarPosition.BottomCenter,
-        floatingToolbar = {
-            if (!selectionMode) {
-                Box(Modifier.fillMaxWidth().padding(end = 20.dp), contentAlignment = Alignment.CenterEnd) {
-                    GlassActionButton(
-                        onClick = { picker.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*")) },
-                        size = 60.dp,
-                        surfaceColor = ComposeColor(0xFF0088FF),
-                    ) {
-                        Icon(MiuixIcons.Regular.Add, tr("导入", "导入"), Modifier.size(24.dp), tint = ComposeColor.White)
-                    }
-                }
-            } else AnimatedVisibility(visible = true, enter = fadeIn(tween(180)) + scaleIn(tween(220), initialScale = .86f), exit = fadeOut(tween(140)) + scaleOut(tween(160), targetScale = .9f)) {
-                GlassLyricFloatingToolbar {
-                    Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { selectedIds = if (selectedIds.size == apps.size) emptySet() else apps.mapTo(linkedSetOf(), CustomRearScreenApp::productId) }) {
-                            Icon(MiuixIcons.Regular.SelectAll, tr("全选", "全选"), Modifier.size(26.4.dp))
-                        }
-                        IconButton(enabled = selectedIds.isNotEmpty(), onClick = { confirmDelete = apps.firstOrNull { it.productId in selectedIds } }) {
-                            Icon(MiuixIcons.Regular.Delete, tr("删除", "删除"), Modifier.size(26.4.dp), tint = ComposeColor(0xFFD32F2F))
-                        }
-                        IconButton(onClick = ::closeSelection) {
-                            Icon(MiuixIcons.Regular.Close, tr("关闭", "关闭"), Modifier.size(26.4.dp))
-                        }
-                    }
-                }
-            }
-        },
-        content = { padding, scroll ->
-            AppList(padding, scroll, if (selectionMode) 112 else 28) {
-                if (apps.isEmpty()) {
-                    item {
-                        Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp, insideMargin = PaddingValues(18.dp)) {
-                            Text(
-                                tr("暂无自定义背屏应用", "暂无自定义背屏应用"),
-                                style = MiuixTheme.textStyles.body2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
-                } else {
-                    items(apps, key = { it.productId }) { app ->
-                        Card(
-                            Modifier.fillMaxWidth(),
-                            cornerRadius = 22.5.dp,
-                            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                            onClick = { if (selectionMode) toggleSelection(app.productId) else selected = app },
-                            onLongPress = { selectionMode = true; selectedIds = selectedIds + app.productId },
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                val bitmap = remember(app.iconPath) {
-                                    BitmapFactory.decodeFile(app.iconPath)?.asImageBitmap()
-                                }
-                                if (bitmap != null) {
-                                    Image(bitmap, tr("应用图标", "应用图标"), Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
-                                } else {
-                                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(MiuixTheme.colorScheme.secondaryVariant))
-                                }
-                                Spacer(Modifier.width(16.dp))
-                                Text(app.name, style = MiuixTheme.textStyles.body1, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                AnimatedVisibility(visible = selectionMode, enter = fadeIn(tween(180)) + slideInHorizontally(tween(220)) { it / 2 }, exit = fadeOut(tween(120)) + slideOutHorizontally(tween(160)) { it / 2 }) {
-                                    Checkbox(state = if (app.productId in selectedIds) ToggleableState.On else ToggleableState.Off, onClick = { toggleSelection(app.productId) }, modifier = Modifier.padding(start = 12.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-    )
-    selected?.let { app ->
-        var name by remember(app.productId) { mutableStateOf(app.name) }
-        WindowDialog(show = true, onDismissRequest = { selected = null }) {
-            TextField(
-                value = name,
-                onValueChange = { name = it },
-                label = tr("应用名", "应用名"),
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-            GlassDialogButton(
-                onClick = { confirmDelete = app; selected = null },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(tr("删除", "删除"), color = ComposeColor.Red) }
-            Spacer(Modifier.height(8.dp))
-            GlassDialogButton(onClick = { selected = null }, modifier = Modifier.fillMaxWidth()) { Text(tr("取消", "取消")) }
-        }
-    }
-    confirmDelete?.let { app ->
-        WindowDialog(show = true, onDismissRequest = { confirmDelete = null }) {
-            Text(tr("确认删除此自定义背屏应用？相关文件将被永久删除。", "确认删除此自定义背屏应用？相关文件将被永久删除。"), style = MiuixTheme.textStyles.body1)
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                GlassDialogButton(onClick = { confirmDelete = null }, modifier = Modifier.weight(1f)) { Text(tr("取消", "取消")) }
-                GlassDialogButton(
-                    onClick = {
-                        val targets = if (selectionMode) apps.filter { it.productId in selectedIds } else listOf(app)
-                        targets.forEach(::deleteCustomRearScreenApp)
-                        confirmDelete = null
-                        closeSelection()
-                        refreshKey++
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text(tr("删除", "删除"), color = ComposeColor.Red) }
-            }
-        }
-    }
-    importError?.let { message ->
-        WindowDialog(show = true, onDismissRequest = { importError = null }) {
-            Text(message, style = MiuixTheme.textStyles.body1)
-            Spacer(Modifier.height(12.dp))
-            GlassDialogButton(onClick = { importError = null }, modifier = Modifier.fillMaxWidth()) { Text(tr("取消", "取消")) }
-        }
-    }
-    importPreview?.let { preview ->
-        WindowDialog(show = true, onDismissRequest = { importPreview = null }) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                preview.preview?.let { image ->
-                    Image(image, tr("背屏预览", "背屏预览"), Modifier.fillMaxWidth().aspectRatio(904f / 572f).clip(RoundedCornerShape(22.5.dp)), contentScale = ContentScale.Crop)
-                }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    preview.icon?.let { image -> Image(image, tr("应用图标", "应用图标"), Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
-                    Spacer(Modifier.width(14.dp))
-                    Text(preview.name, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
-                }
-                Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                    Text(preview.description.ifBlank { tr("暂无描述", "暂无描述") }, style = MiuixTheme.textStyles.body2)
-                }
-                GlassDialogButton(
-                    onClick = {
-                        runCatching { importCustomRearScreenApp(context, preview.uri).getOrThrow() }
-                            .onSuccess { importPreview = null; refreshKey++ }
-                            .onFailure { importError = it.message ?: tr("导入失败", "导入失败"); importPreview = null }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text(tr("导入", "导入")) }
-            }
-        }
-    }
-}
-
-private fun readCustomRearScreenImportPreview(context: Context, uri: Uri): CustomRearScreenImportPreview {
-    var previewBytes: ByteArray? = null
-    var iconBytes: ByteArray? = null
-    var descriptionXml = ""
-    context.contentResolver.openInputStream(uri)?.use { input ->
-        ZipInputStream(input).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (entry.isDirectory) continue
-                val name = entry.name.replace('\\', '/')
-                when {
-                    name.substringAfterLast('/').startsWith("preview_rearscreen", true) && name.endsWith(".png", true) && previewBytes == null -> previewBytes = zip.readBytes()
-                    name.endsWith("/app/app_icon.png", true) || name == "app/app_icon.png" -> iconBytes = zip.readBytes()
-                    name.substringAfterLast('/').equals("description.xml", true) -> descriptionXml = zip.readBytes().toString(Charsets.UTF_8)
-                }
-            }
-        }
-    } ?: error("无法读取压缩文件")
-    val name = Regex("<(?:appName|AppName)>\\s*(.*?)\\s*</(?:appName|AppName)>", RegexOption.DOT_MATCHES_ALL)
-        .find(descriptionXml)?.groupValues?.getOrNull(1)?.trim()
-        ?.replace("&amp;", "&")?.replace("&lt;", "<")?.replace("&gt;", ">")
-        .orEmpty().ifBlank { tr("未命名背屏应用", "未命名背屏应用") }
-    val description = Regex("<funcDesc>\\s*(.*?)\\s*</funcDesc>", RegexOption.DOT_MATCHES_ALL)
-        .find(descriptionXml)?.groupValues?.getOrNull(1)?.trim()
-        ?.replace("&amp;", "&")?.replace("&lt;", "<")?.replace("&gt;", ">")
-        .orEmpty()
-    return CustomRearScreenImportPreview(
-        uri = uri,
-        preview = previewBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() },
-        icon = iconBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() },
-        name = name,
-        description = description,
-    )
-}
-
-private fun scanCustomRearScreenApps(context: Context): List<CustomRearScreenApp> {
-    val rootPath = "/storage/emulated/0/Android/data/com.android.thememanager/files/MIUI/.ai_app"
-    val runtimeRoot = "/data/system/theme_magic/users/0/rearScreenAiApp_Theme"
-    val folders = runRootCommand("find '$rootPath' -maxdepth 1 -type d -name '*_extracted' -print")
-        .lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
-    return folders.mapNotNull { folderPath ->
-        val folder = File(folderPath)
-        val id = folder.name.removeSuffix("_extracted")
-        val xml = runRootCommand("cat ${shellQuote("$folderPath/description.xml")}")
-        val name = Regex("<appName>\\s*(.*?)\\s*</appName>", RegexOption.DOT_MATCHES_ALL).find(xml)?.groupValues?.getOrNull(1)?.trim()
-            ?.replace("&amp;", "&")?.replace("&lt;", "<")?.replace("&gt;", ">")
-            ?.takeUnless { it.isNullOrBlank() } ?: id
-        val sourceIcon = if (runRootCommand("test -f ${shellQuote("$runtimeRoot/$id/app_icon.png")} && echo yes").trim() == "yes") {
-            "$runtimeRoot/$id/app_icon.png"
-        } else "$folderPath/app/app_icon.png"
-        val cachedIcon = File(context.cacheDir, "custom-rear-icons/$id.png")
-        cachedIcon.parentFile?.mkdirs()
-        runRootCommand("test -f ${shellQuote(sourceIcon)} && cp ${shellQuote(sourceIcon)} ${shellQuote(cachedIcon.absolutePath)} && chmod 644 ${shellQuote(cachedIcon.absolutePath)}")
-        val icon = cachedIcon.takeIf { it.isFile }?.absolutePath ?: sourceIcon
-        CustomRearScreenApp(id, name, icon, folderPath, "$runtimeRoot/$id")
-    }.sortedBy { it.name.lowercase(Locale.getDefault()) }
-}
-
-private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
-
-private fun runRootCommand(command: String): String = runCatching {
-    val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start()
-    val output = process.inputStream.bufferedReader().use { it.readText() }
-    process.waitFor(15, TimeUnit.SECONDS)
-    process.destroy()
-    output
-}.getOrDefault("")
-
-private fun deleteCustomRearScreenApp(app: CustomRearScreenApp) {
-    val command = "rm -rf '${app.extractedPath.replace("'", "'\\''")}' '${app.runtimePath.replace("'", "'\\''")}'"
-    runCatching {
-        ProcessBuilder("su", "-c", command).redirectErrorStream(true).start().apply {
-            inputStream.bufferedReader().readText()
-            waitFor(15, TimeUnit.SECONDS)
-        }
-    }.onFailure { Log.w("HyperChanger", "Custom rear-screen deletion failed", it) }
-}
-
-@Composable
-private fun rememberRearScreenGestureSettings(): Pair<RearScreenGestureSettings, (((RearScreenGestureSettings) -> RearScreenGestureSettings) -> Unit)> {
-    val context = LocalContext.current
-    val service by HookApplication.service.collectAsState()
-    val store = remember(context) { RearScreenGestureSettingsStore(context) }
-    var settings by remember { mutableStateOf(store.settings) }
-    DisposableEffect(context, store) {
-        val preferences = context.getSharedPreferences(REMOTE_PREFERENCE_GROUP, Context.MODE_PRIVATE)
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == null || key == KEY_REAR_SCREEN_LEFT_SWIPE_ENABLED || key == KEY_REAR_SCREEN_LEFT_SWIPE_PACKAGE) {
-                store.reload()
-                settings = store.settings
-            }
-        }
-        preferences.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    return settings to { transform ->
-        store.update(service, transform)
-        settings = store.settings
-    }
-}
-
-@Composable
-private fun RearSwipeAppPicker(back: () -> Unit) {
-    val context = LocalContext.current
-    val installed = rememberRearApps()
-    val apps by produceState<List<RearApp>>(emptyList(), installed) {
-        value = withContext(Dispatchers.IO) {
-            installed.filter { it.packageName != "com.xiaomi.subscreencenter" &&
-                context.packageManager.getLaunchIntentForPackage(it.packageName) != null }
-        }
-    }
-    val (settings, update) = rememberRearScreenGestureSettings()
-    var query by rememberSaveable { mutableStateOf("") }
-    var showSystemApps by rememberSaveable { mutableStateOf(false) }
-    val visibleApps = remember(apps, query, showSystemApps) {
-        apps.filter { (showSystemApps || !it.isSystem) &&
-            (it.label.contains(query.trim(), ignoreCase = true) || it.packageName.contains(query.trim(), ignoreCase = true)) }
-    }
-    AppPage(
-        title = tr("选择应用", "选择应用"),
-        onBack = back,
-        restartScopes = setOf(ScopeApplication.SUBSCREEN_CENTER),
-        actions = {
-            GlassIconDropdownMenu(
-                entry = DropdownEntry(items = listOf(DropdownItem(
-                    text = if (showSystemApps) tr("隐藏系统应用", "隐藏系统应用") else tr("显示系统应用", "显示系统应用"),
-                    selected = showSystemApps,
-                    onClick = { showSystemApps = !showSystemApps },
-                ))),
-                backdrop = LocalToolbarBackdrop.current,
-                trigger = { onClick, enabled ->
-                    GlassToolbarIconButton(
-                        icon = MiuixIcons.Regular.More,
-                        description = tr("更多", "更多"),
-                        containerPadding = PaddingValues(end = 8.dp),
-                        onClick = { if (enabled) onClick() },
-                    )
-                },
-            )
-        },
-    ) { padding, scroll ->
-        AppList(padding, scroll, 28) {
-            item { RearAppSearchBar(query, onQueryChange = { query = it }) }
-            if (visibleApps.isEmpty()) item {
-                Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp, insideMargin = PaddingValues(18.dp)) {
-                    Text(tr("没有匹配的应用", "没有匹配的应用"), style = MiuixTheme.textStyles.body2)
-                }
-            }
-            items(visibleApps, key = { it.packageName }) { app ->
-                RearAppCard(app = app, checked = settings.packageName == app.packageName, onCheckedChange = {
-                    update { it.copy(packageName = app.packageName) }
-                    back()
-                })
-            }
-        }
-    }
-}
-
-@Composable
-private fun RearMusicApps(
-    selectedPackages: Set<String>,
-    onSelectedPackagesChange: (Set<String>) -> Unit,
-    back: () -> Unit,
-) {
-    val apps = rememberRearApps()
-    var query by rememberSaveable { mutableStateOf("") }
-    var showSystemApps by rememberSaveable { mutableStateOf(false) }
-    // Checkbox changes persist immediately; only entry/refresh changes the priority group.
-    var orderingPackages by remember { mutableStateOf(selectedPackages.toSet()) }
-    val currentSelectedPackages by rememberUpdatedState(selectedPackages)
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) orderingPackages = currentSelectedPackages.toSet()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    val documents = remember(apps) {
-        apps.map { app -> SettingsSearchDocument(app, app.label, "", listOf(app.packageName)) }
-    }
-    val matches = rememberSettingsSearch(documents, query)
-    val visibleApps = remember(matches, orderingPackages, showSystemApps) {
-        matches.orEmpty().filter { showSystemApps || !it.isSystem }
-            .sortedWith(compareByDescending<RearApp> { it.packageName in orderingPackages }
-                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
-                .thenBy { it.packageName })
-    }
-    AppPage(
-        title = tr("\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6\u767d\u540d\u5355", "\u80cc\u5c4f\u97f3\u4e50\u63a7\u4ef6\u767d\u540d\u5355"),
-        onBack = back,
-        floatingToolbar = {
-            NavigationAppSearchField(query, onQueryChange = { query = it })
-        },
-        content = { padding, scroll ->
-            val listPadding = PaddingValues(
-                top = padding.calculateTopPadding(),
-                bottom = maxOf(
-                    padding.calculateBottomPadding(),
-                    WindowInsets.ime.asPaddingValues().calculateBottomPadding(),
-                ),
-            )
-            PullToRefresh(
-                isRefreshing = false,
-                onRefresh = { orderingPackages = currentSelectedPackages.toSet() },
-                modifier = Modifier.fillMaxSize(),
-                pullToRefreshState = rememberPullToRefreshState(refreshThreshold = NAVIGATION_REFRESH_THRESHOLD),
-                contentPadding = padding,
-                topAppBarScrollBehavior = scroll,
-                color = MiuixTheme.colorScheme.primary,
-                refreshTexts = navigationRefreshTexts(),
-            ) {
-                AppList(listPadding, scroll, 112) {
-                    if (visibleApps.isEmpty()) {
-                        item {
-                            Card(Modifier.fillMaxWidth(), cornerRadius = 22.5.dp, insideMargin = PaddingValues(18.dp)) {
-                                Text(
-                                    if (matches == null) tr("category_search_loading", "正在搜索…")
-                                    else tr("\u6ca1\u6709\u5339\u914d\u7684\u5e94\u7528", "\u6ca1\u6709\u5339\u914d\u7684\u5e94\u7528"),
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-                        }
-                    } else {
-                        items(visibleApps, key = { it.packageName }) { app ->
-                            val checked = app.packageName in selectedPackages
-                            RearAppCard(
-                                app = app,
-                                checked = checked,
-                                onCheckedChange = {
-                                    onSelectedPackagesChange(
-                                        if (checked) selectedPackages - app.packageName
-                                        else selectedPackages + app.packageName,
-                                    )
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        actions = {
-            GlassIconDropdownMenu(
-                entry = DropdownEntry(
-                    items = listOf(
-                        DropdownItem(
-                            text = if (showSystemApps) tr("\u9690\u85cf\u7cfb\u7edf\u5e94\u7528", "\u9690\u85cf\u7cfb\u7edf\u5e94\u7528") else tr("\u663e\u793a\u7cfb\u7edf\u5e94\u7528", "\u663e\u793a\u7cfb\u7edf\u5e94\u7528"),
-                            selected = showSystemApps,
-                            onClick = { showSystemApps = !showSystemApps },
-                        ),
-                    ),
-                ),
-                backdrop = LocalToolbarBackdrop.current,
-                trigger = { onClick, enabled ->
-                    GlassToolbarIconButton(
-                        icon = MiuixIcons.Regular.More,
-                        description = tr("\u66f4\u591a", "\u66f4\u591a"),
-                        containerPadding = PaddingValues(end = 8.dp),
-                        onClick = { if (enabled) onClick() },
-                    )
-                },
-            )
-        },
-    )
-}
-
-@Composable
-private fun RearAppSearchBar(query: String, onQueryChange: (String) -> Unit) {
-    SearchBar(
-        modifier = Modifier.fillMaxWidth(),
-        insideMargin = DpSize(0.dp, 0.dp),
-        inputField = {
-            InputField(
-                query = query,
-                onQueryChange = onQueryChange,
-                onSearch = {},
-                expanded = false,
-                onExpandedChange = {},
-                label = tr("\u641c\u7d22\u5e94\u7528\u540d\u6216\u5305\u540d", "\u641c\u7d22\u5e94\u7528\u540d\u6216\u5305\u540d"),
-            )
-        },
-        onExpandedChange = {},
-        expanded = false,
-    ) {}
-}
-
-@Composable
-private fun RearAppCard(
-    app: RearApp,
-    checked: Boolean,
-    onCheckedChange: () -> Unit,
-) {
-    val packageManager = LocalContext.current.packageManager
-    Card(
-        modifier = Modifier.fillMaxWidth().height(92.dp),
-        cornerRadius = 22.5.dp,
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-        onClick = onCheckedChange,
-        showIndication = true,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RearAppIcon(packageManager, app.info)
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    app.packageName,
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Checkbox(
-                state = if (checked) ToggleableState.On else ToggleableState.Off,
-                onClick = onCheckedChange,
-            )
-        }
-    }
-}
-
-@Composable
-private fun RearAppIcon(packageManager: PackageManager, info: ApplicationInfo) {
-    val bitmap by produceState<ImageBitmap?>(initialValue = null, info.packageName) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val drawable = info.loadIcon(packageManager)
-                val bitmap = if (drawable is BitmapDrawable && drawable.bitmap != null) {
-                    drawable.bitmap
-                } else {
-                    val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 1
-                    val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 1
-                    createBitmap(width, height).also { created ->
-                        val canvas = Canvas(created)
-                        drawable.setBounds(0, 0, canvas.width, canvas.height)
-                        drawable.draw(canvas)
-                    }
-                }
-                bitmap.asImageBitmap()
-            }.getOrNull()
-        }
-    }
-    if (bitmap != null) {
-        Image(bitmap = bitmap!!, contentDescription = null, modifier = Modifier.size(44.dp))
-    } else {
-        Spacer(Modifier.size(44.dp))
-    }
-}
 
 @Composable
 private fun SettingsHome(
@@ -3754,12 +2825,10 @@ private fun RestartScopesPage(
         ScopeApplication.SETTINGS,
         ScopeApplication.GOOGLE_PLAY_SERVICES,
         ScopeApplication.PERSONAL_ASSISTANT,
-        ScopeApplication.SUBSCREEN_CENTER,
         ScopeApplication.SYSTEM_UPDATE,
         ScopeApplication.SOUND_EFFECT,
         ScopeApplication.MI_SETTINGS,
         ScopeApplication.SCREEN_RECORDER,
-        ScopeApplication.SCREENSHOT,
         ScopeApplication.SUPER_XIAOAI,
         ScopeApplication.SUPER_XIAOAI_IME,
         ScopeApplication.GALLERY,
@@ -5876,7 +4945,6 @@ private fun Detail(
     cameras: CameraSettings,
     deviceProfile: DeviceProfileSettings,
     appearance: SettingsAppearanceSettings,
-    musicWhitelist: Set<String>,
     dockSettings: DockSettings,
     homeRecentsSettings: HomeRecentsSettings,
     homeFolderSettings: HomeFolderSettings,
@@ -5891,7 +4959,6 @@ private fun Detail(
     updateCamera: ((CameraSettings) -> CameraSettings) -> Unit,
     updateDeviceProfile: ((DeviceProfileSettings) -> DeviceProfileSettings) -> Unit,
     updateAppearance: ((SettingsAppearanceSettings) -> SettingsAppearanceSettings) -> Unit,
-    updateMusicWhitelist: (Set<String>) -> Unit,
     presetActions: ShadePresetActions,
     updateAirDrop: (((AirDropSettings) -> AirDropSettings) -> Unit),
     settingsApp: SettingsAppPreferences,
@@ -6008,16 +5075,9 @@ private fun Detail(
         PageId.DONATE -> Donate(back)
         PageId.OPEN -> OpenSource(back)
         PageId.CONTRIBUTORS -> Contributors(back)
-        PageId.REAR_SCREEN -> RearScreen(settings, update, musicWhitelist, updateMusicWhitelist, openPage, back)
-        PageId.REAR_SCREEN_SHELL -> RearScreenshotShellPage(back)
-        PageId.REAR_MINI_PLAYER -> RearMiniPlayerPage(back)
-        PageId.REAR_CUSTOM_CENTER -> CustomRearScreenCenter(back)
-        PageId.REAR_MUSIC_APPS -> RearMusicApps(musicWhitelist, updateMusicWhitelist, back)
-        PageId.REAR_SWIPE_APP -> RearSwipeAppPicker(back)
         PageId.OTHER -> OtherPage(airDropSettings, updateAirDrop, screenRecorder, updateScreenRecorder, openPage, back)
         PageId.ENVIRONMENT_DETECTION -> EnvironmentDetectionPage(back)
         PageId.CLOUD_CONTROL -> CloudControlPage(back)
-        PageId.PRIVACY_GUARD -> PrivacyGuardPage(back)
         PageId.CONTACTS_DIALER -> ContactsDialerPage({ openPage(PageId.CONTACTS_DIALER_BACKGROUND) }, back)
         PageId.CONTACTS_DIALER_BACKGROUND -> ContactsDialerBackgroundPage(back)
         PageId.SIDEBAR -> SidebarPage({ openPage(PageId.SIDEBAR_GLASS) }, back)
@@ -6034,8 +5094,6 @@ private fun Detail(
         )
         PageId.SIMULATE_ISLAND -> IslandSimulationPage(onRequestNotificationPermission, back)
         PageId.SIMULATE_MEDIA_NOTIFICATION -> SimulateMediaNotificationPage(
-            musicWhitelist,
-            updateMusicWhitelist,
             onRequestNotificationPermission,
             back,
         )
@@ -6242,8 +5300,6 @@ private fun NotificationSimulationDialog(
 
 @Composable
 private fun SimulateMediaNotificationPage(
-    musicWhitelist: Set<String>,
-    updateMusicWhitelist: (Set<String>) -> Unit,
     onRequestNotificationPermission: () -> Unit,
     back: () -> Unit,
 ) = AppPage(tr("simulate_media_notification", "媒体通知模拟"), back) { padding, scroll ->
@@ -6439,14 +5495,6 @@ private fun SimulateMediaNotificationPage(
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                )
-                SwitchPreference(
-                    title = tr("add_module_to_rear_media_whitelist", "添加模块应用到背屏媒体控件白名单"),
-                    checked = context.packageName in musicWhitelist,
-                    onCheckedChange = { enabled ->
-                        val next = if (enabled) musicWhitelist + context.packageName else musicWhitelist - context.packageName
-                        updateMusicWhitelist(next)
-                    },
                 )
                 Box(Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 20.dp)) {
                     GlassDialogButton(
@@ -10179,6 +9227,7 @@ private fun Control(back: () -> Unit) {
                         ParameterIntSlide(tr("圆形按钮圆角", "圆形按钮圆角"), settings.smallButtons, -40..80, " dp", defaultValue = 0) { save(settings.copy(smallButtons = it)) }
                         ParameterIntSlide(tr("融合台设备中心卡片圆角", "融合台设备中心卡片圆角"), settings.deviceCenter, -40..80, " dp", defaultValue = 0) { save(settings.copy(deviceCenter = it)) }
                         ParameterIntSlide(tr("展开面板圆角", "展开面板圆角"), settings.expandedPanel, -40..80, " dp", defaultValue = 0) { save(settings.copy(expandedPanel = it)) }
+                        ParameterIntSlide(tr("展开面板内部条圆角", "展开面板内部条圆角"), settings.expandedPanelItem, -40..80, " dp", defaultValue = 0) { save(settings.copy(expandedPanelItem = it)) }
                     }
                 }
             }
@@ -11584,43 +10633,6 @@ private fun LockscreenTemplateLimitDialog(
                 ) {
                     Text(tr("\u4fdd\u5b58", "\u4fdd\u5b58"))
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RearScreenWallpaperLimitDialog(
-    show: Boolean,
-    current: Int,
-    onDismiss: () -> Unit,
-    onSave: (Int) -> Unit,
-) {
-    var value by remember(show, current) { mutableStateOf(current.toString()) }
-    WindowDialog(show = show, onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                tr("自定义背屏壁纸数量", "自定义背屏壁纸数量"),
-                style = MiuixTheme.textStyles.title3,
-                fontWeight = FontWeight.Bold,
-            )
-            TextField(
-                value = value,
-                onValueChange = { value = it.filter(Char::isDigit).take(3) },
-                label = tr("数量（20-200）", "数量（20-200）"),
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                cornerRadius = 999.dp,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GlassDialogButton(onDismiss, Modifier.weight(1f)) { Text(tr("取消", "取消")) }
-                GlassDialogButton(
-                    onClick = { onSave(value.toIntOrNull()?.coerceIn(20, 200) ?: current.coerceIn(20, 200)) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text(tr("保存", "保存")) }
             }
         }
     }

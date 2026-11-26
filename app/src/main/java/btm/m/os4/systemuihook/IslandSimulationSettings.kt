@@ -4,6 +4,9 @@ package btm.m.os4.systemuihook
 
 import android.content.Context
 
+internal const val ISLAND_SIMULATION_TAG = "hyperchanger_island_simulation"
+internal const val ISLAND_SIMULATION_TYPE_EXTRA = "hyperchanger.island.simulation.type"
+
 internal enum class IslandSimulationType(val key: String, val labelKey: String, val label: String) {
     TEXT("text", "island_sim_text", "文本超级岛"),
     CALL("call", "island_sim_call", "Call Kit 超级岛"),
@@ -34,7 +37,6 @@ internal data class IslandSimulationSettings(
     val logistics: Boolean = false,
     val subContent: String = "",
     val secondaryAction: String = "",
-    val rearScreen: Boolean = false,
 )
 
 /** App-only simulation drafts. No hook process consumes these preferences, so no remote mirror is needed. */
@@ -67,7 +69,6 @@ internal class IslandSimulationSettingsStore(context: Context) {
             action = text("action", defaults.action),
             subContent = text("sub_content", defaults.subContent),
             secondaryAction = text("secondary_action", defaults.secondaryAction),
-            rearScreen = prefs.getBoolean("${type.key}_rear_screen", false),
             progress = prefs.getInt("${type.key}_progress", defaults.progress).coerceIn(0, 99),
             durationSeconds = prefs.getInt("${type.key}_duration", 15).takeIf { it in ISLAND_SIMULATION_DURATIONS } ?: 15,
             callSeconds = prefs.getInt("${type.key}_call_seconds", 65).coerceIn(0, 3599),
@@ -84,7 +85,6 @@ internal class IslandSimulationSettingsStore(context: Context) {
             .putString("${type.key}_action", value.action)
             .putString("${type.key}_sub_content", value.subContent)
             .putString("${type.key}_secondary_action", value.secondaryAction)
-            .putBoolean("${type.key}_rear_screen", value.rearScreen)
             .putInt("${type.key}_progress", value.progress.coerceIn(0, 99))
             .putInt("${type.key}_duration", value.durationSeconds.takeIf { it in ISLAND_SIMULATION_DURATIONS } ?: 15)
             .putInt("${type.key}_call_seconds", value.callSeconds.coerceIn(0, 3599))

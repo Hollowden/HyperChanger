@@ -50,7 +50,6 @@ object HotReloadPolicy {
     @JvmField
     val SUPPORTED: Set<String> = setOf(
         "com.apple.android.music",
-        "com.xiaomi.subscreencenter",
         "com.autonavi.minimap",
         "com.autonavi.minimap:locationservice",
         "com.autonavi.minimap:widgetProvider",

@@ -124,7 +124,6 @@ enum class ScopeApplication(val title: String, val packageName: String) {
     DESKTOP("\u684c\u9762", "com.miui.home"),
     WALLPAPER("\u58c1\u7eb8", "com.miui.miwallpaper"),
     AOD("\u606f\u5c4f\u4e0e\u9501\u5c4f\u7f16\u8f91", "com.miui.aod"),
-    SUBSCREEN_CENTER("\u80cc\u5c4f", "com.xiaomi.subscreencenter"),
     THEME_MANAGER("\u4e3b\u9898\u58c1\u7eb8", "com.android.thememanager"),
     PERSONAL_ASSISTANT("\u667a\u80fd\u52a9\u7406", "com.miui.personalassistant"),
     GALLERY("\u76f8\u518c", "com.miui.gallery"),
@@ -135,7 +134,6 @@ enum class ScopeApplication(val title: String, val packageName: String) {
     SETTINGS("\u8bbe\u7f6e", "com.android.settings"),
     SYSTEM_UPDATE("\u7cfb\u7edf\u66f4\u65b0", "com.android.updater"),
     SCREEN_RECORDER("\u5c4f\u5e55\u5f55\u5236", "com.miui.screenrecorder"),
-    SCREENSHOT("\u622a\u5c4f", "com.miui.screenshot"),
     APPLE_MUSIC("Apple Music", "com.apple.android.music"),
     NETEASE_MUSIC("网易云音乐", "com.netease.cloudmusic"),
     WEIBO("微博", "com.sina.weibo"),
@@ -167,6 +165,4 @@ enum class ScopeApplication(val title: String, val packageName: String) {
     GOOGLE_PLAY_SERVICES("Google Play 服务", "com.google.android.gms"),
     HTML_VIEWER("HTML 查看器", "com.android.htmlviewer"),
     JOYOSE("Joyose", "com.xiaomi.joyose"),
-    SYSTEM_HELPER("系统助手", "com.mobiletools.systemhelper"),
-    GUARD_PROVIDER("系统安全组件", "com.miui.guardprovider"),
 }

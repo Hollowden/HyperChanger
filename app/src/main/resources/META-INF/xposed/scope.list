@@ -9,12 +9,10 @@ com.miui.gallery
 com.hyper.gallery.plugin
 com.miui.mediaeditor
 com.miui.screenrecorder
-com.miui.screenshot
 com.xiaomi.type
 com.miui.phrase
 com.android.settings
 com.android.updater
-com.xiaomi.subscreencenter
 com.miui.personalassistant
 com.android.thememanager
 com.xiaomi.shop
@@ -50,7 +48,5 @@ com.twitter.android
 com.github.android
 com.android.htmlviewer
 com.xiaomi.joyose
-com.mobiletools.systemhelper
-com.miui.guardprovider
 com.reddit.frontpage
 com.ss.android.ugc.aweme

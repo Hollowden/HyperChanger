@@ -83,13 +83,6 @@ internal fun IslandSimulationPage(onRequestNotificationPermission: () -> Unit, b
                             effectsStore.setOuterGlow(it)
                         },
                     )
-                    if (supportsIslandSimulationRearScreen(type, settings.logistics)) {
-                        SwitchPreference(
-                            title = tr("island_sim_rear_screen", "同时发送至背屏"),
-                            checked = settings.rearScreen,
-                            onCheckedChange = { edit(settings.copy(rearScreen = it)) },
-                        )
-                    }
                     GlassDialogButton(
                         onClick = ::send,
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp).fillMaxWidth(),

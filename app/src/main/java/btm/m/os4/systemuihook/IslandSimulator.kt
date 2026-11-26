@@ -73,7 +73,6 @@ internal object IslandSimulator {
                     putString(ISLAND_SIMULATION_BIG_GLOW_EXTRA, ISLAND_SIMULATION_OUTER_GLOW_EFFECT)
                     putString("miui.effect.src", ISLAND_SIMULATION_OUTER_GLOW_EFFECT)
                 }
-                buildIslandSimulationRearPayload(type, draft)?.let { putString("miui.rear.param", it) }
                 putString("miui.focus.param", buildIslandSimulationPayload(type, draft, progress, terminal, finished, timerStart,
                     images = images.keys, outerGlow = outerGlow))
                 putBundle("miui.focus.pics", Bundle().apply {

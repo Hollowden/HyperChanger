@@ -137,6 +137,7 @@ internal class PersonalAssistantBackgroundHooks(
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             alpha = 0f
+            visibility = View.INVISIBLE
             // A strong owner while attached, without a global Window/Context reference.
             tag = this@Background
         }
@@ -154,6 +155,12 @@ internal class PersonalAssistantBackgroundHooks(
             progress = assistantBackgroundProgress(value)
             if (!ready || disposed) return
             runCatching {
+                if (progress <= 0.001f) {
+                    if (image.alpha != 0f) image.alpha = 0f
+                    if (image.visibility != View.INVISIBLE) image.visibility = View.INVISIBLE
+                    return
+                }
+                if (image.visibility != View.VISIBLE) image.visibility = View.VISIBLE
                 val adapter = adapterRef.get() ?: return
                 val nativeProgress = assistantBackgroundProgress(progress, (offset.invoke(adapter) as Number).toFloat())
                 val radius = settings.replacementBlurRadius(nativeProgress, (maxRadius.invoke(adapter) as Number).toFloat())
@@ -161,7 +168,7 @@ internal class PersonalAssistantBackgroundHooks(
                     image.setRenderEffect(if (radius > 0f) RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP) else null)
                     lastBlur = radius
                 }
-                image.alpha = progress
+                if (image.alpha != progress) image.alpha = progress
             }.onFailure(::fallback)
         }
 

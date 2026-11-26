@@ -340,17 +340,19 @@ public final class IosNotificationCenterPresentation {
             revealedDepth = depth;
             lastDepthRevealBlur = -1;
         }
-        float targetAlpha = wallpaperReveal;
-        // 壁纸原位揭示模式下，景深压字人像层随 host 下滑在最后 20%（0.80 -> 1.0）时钟落位时丝滑淡入，
-        // 避免下拉中途与固定在原位的壁纸主体发生视觉错位。
-        if (!btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosStagedExpansion()) {
-            float p = btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosProgress();
-            float depthFade = p <= 0.80f ? 0f : Math.min(1f, (p - 0.80f) / 0.20f);
-            targetAlpha *= depthFade;
+        // 锁屏状态下系统原生 deducted_image_view 已显示在底层，隐藏克隆景深层避免双层重影。
+        if (Boolean.TRUE.equals(keyguardLockedOverride)) {
+            if (depth.getAlpha() != 0f) depth.setAlpha(0f);
+            if (depth.getVisibility() != View.GONE) depth.setVisibility(View.GONE);
+            return;
         }
+        if (lastDepthDrawable != null && depth.getVisibility() != View.VISIBLE) {
+            depth.setVisibility(View.VISIBLE);
+        }
+        float targetAlpha = wallpaperReveal;
         if (depth.getAlpha() != targetAlpha) depth.setAlpha(targetAlpha);
         if (lastDepthRevealBlur != wallpaperRevealBlur) {
-            depth.setRenderEffect(IosShadeBlurEffects.blur(wallpaperRevealBlur));
+            depth.setRenderEffect(wallpaperRevealBlur == 0 ? null : IosShadeBlurEffects.blur(wallpaperRevealBlur));
             lastDepthRevealBlur = wallpaperRevealBlur;
         }
     }
@@ -797,6 +799,15 @@ public final class IosNotificationCenterPresentation {
             float y = sheetPoint[1] - panelPoint[1];
             if (host.getTranslationX() != x) host.setTranslationX(x);
             if (host.getTranslationY() != y) host.setTranslationY(y);
+            // 壁纸原位揭示（!staged）模式下，底层壁纸 sWp 通过 -offset 固定在屏幕原位，
+            // 克隆景深层 depth 必须做对称的 -y 抵消（x=0 同步），使其与底层壁纸主体 100% 像素级重合，
+            // 彻底消除上下拉时多出一个景深抠图图层跟着移动的错位重影。
+            if (depth != null) {
+                boolean pinInPlace = !btm.m.os4.systemuihook.hypermusiccover.ShadeLayer.iosStagedExpansion();
+                float depthCounterY = pinInPlace ? -y : 0f;
+                if (depth.getTranslationY() != depthCounterY) depth.setTranslationY(depthCounterY);
+                if (depth.getTranslationX() != 0f) depth.setTranslationX(0f);
+            }
         }
         if (oldHeader == null) findHeader();
         syncStackTransform();
@@ -917,7 +928,8 @@ public final class IosNotificationCenterPresentation {
     }
 
     private static void syncDepth() {
-        if (!wallpaperEnabled || (panel != null && panel.getWidth() > panel.getHeight())) {
+        if (!wallpaperEnabled || Boolean.TRUE.equals(keyguardLockedOverride)
+                || (panel != null && panel.getWidth() > panel.getHeight())) {
             // The portrait presentation uses MIUI's deducted subject layer for depth. A
             // landscape split has no meaningful subject-to-clock composition, so hide it and
             // let the cropped/blurred wallpaper provide a quiet backdrop behind both columns.

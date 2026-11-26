@@ -13,6 +13,7 @@ internal data class ControlCenterRadiusSettings(
     val smallButtons: Int = 0,
     val deviceCenter: Int = 0,
     val expandedPanel: Int = 0,
+    val expandedPanelItem: Int = 0,
 )
 
 internal object ControlCenterRadiusPreferences {
@@ -25,6 +26,7 @@ internal object ControlCenterRadiusPreferences {
         smallButtons = p.getInt(PREFIX + "small_buttons", 0).coerceIn(-40, 80),
         deviceCenter = p.getInt(PREFIX + "device_center", 0).coerceIn(-40, 80),
         expandedPanel = p.getInt(PREFIX + "expanded_panel", 0).coerceIn(-40, 80),
+        expandedPanelItem = p.getInt(PREFIX + "expanded_panel_item", 0).coerceIn(-40, 80),
     )
     fun write(p: SharedPreferences, s: ControlCenterRadiusSettings) {
         p.edit().putBoolean(PREFIX + "enabled", s.enabled)
@@ -33,10 +35,11 @@ internal object ControlCenterRadiusPreferences {
             .putInt(PREFIX + "sliders", s.sliders.coerceIn(-40, 80))
             .putInt(PREFIX + "small_buttons", s.smallButtons.coerceIn(-40, 80))
             .putInt(PREFIX + "device_center", s.deviceCenter.coerceIn(-40, 80))
-            .putInt(PREFIX + "expanded_panel", s.expandedPanel.coerceIn(-40, 80)).apply()
+            .putInt(PREFIX + "expanded_panel", s.expandedPanel.coerceIn(-40, 80))
+            .putInt(PREFIX + "expanded_panel_item", s.expandedPanelItem.coerceIn(-40, 80)).apply()
     }
     fun sync(local: SharedPreferences, remote: SharedPreferences): ControlCenterRadiusSettings {
-        val keys = listOf("enabled", "top_buttons", "media_card", "sliders", "small_buttons", "device_center", "expanded_panel")
+        val keys = listOf("enabled", "top_buttons", "media_card", "sliders", "small_buttons", "device_center", "expanded_panel", "expanded_panel_item")
         val editor = local.edit()
         keys.forEach { key ->
             val full = PREFIX + key
