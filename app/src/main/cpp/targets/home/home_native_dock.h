@@ -54,6 +54,9 @@ inline constexpr std::array<uint32_t, 6> kNoLabelLayoutShape{
 inline constexpr std::array<uint32_t, 6> kNoLabelOffsetShape{
     0x94000000, 0x37200160, 0xfc5f03a1, 0xfc5e83a0, 0x1e601003, 0x6e221c42,
 };
+inline constexpr std::array<uint32_t, 6> kRelease308NoLabelOffsetShape{
+    0x94000000, 0x37200160, 0xfc5f83a1, 0xfc5f03a0, 0x1e601003, 0x6e221c42,
+};
 inline constexpr std::array<uint32_t, 6> kNoLabelPositionShape{
     0x94000000, 0x372000a0, 0xfc5d83a0, 0xaa1d03ef, 0xa8c179fd, 0xd65f03c0,
 };
@@ -72,6 +75,11 @@ inline constexpr std::array<uint32_t, 14> kGateShape{
     0x940024bf, 0xaa0003e2, 0xf85d83a0, 0xf81c83a2, 0xb840b001, 0xb840f003,
     0x8b1c8063, 0xb840b064,
 };
+inline constexpr auto kRelease308GateShape = [] {
+    auto shape = kGateShape;
+    shape[2] = 0x372004a1;
+    return shape;
+}();
 // DeviceConfig.supportShowDockBackground. The third instruction is the
 // capability-bit test; replacing it with NOP follows the true-object path.
 inline constexpr std::array<uint32_t, 5> kSupportShape{
@@ -215,6 +223,44 @@ inline constexpr auto kModernPaddingShape = [] {
 inline constexpr std::array<uint32_t, 8> kModernPaddingReadShape{
     0xf9403f40, 0xf9552800, 0xf9402370, 0x6b10001f,
     0x54000081, 0x91405762, 0xf9445442, 0x94000000,
+};
+// Verified against 8.01.03.308 (Build-ID 4f1bdaed4b587838fb2dd5ed66cb8d6a).
+inline constexpr auto kRelease308StrategyShape = [] {
+    auto shape = kStrategyShape;
+    shape[34] = 0xf971eb60;
+    for (size_t i : {48, 56, 80, 93}) shape[i] = 0x9143ab61;
+    for (size_t i : {49, 57, 94}) shape[i] = 0xf9457c21;
+    for (size_t i : {62, 70}) shape[i] = 0x9143ab64;
+    for (size_t i : {63, 71}) shape[i] = 0xf9457c84;
+    shape[81] = 0xf9458021;
+    return shape;
+}();
+inline constexpr auto kRelease308GlassRadiusShape = [] {
+    auto shape = kGlassRadiusShape;
+    shape[8] = 0xf952dc00;
+    shape[18] = 0x9143c370;
+    shape[19] = 0xf945ea10;
+    return shape;
+}();
+inline constexpr auto kRelease308AdvancedRadiusShape = [] {
+    auto shape = kAdvancedRadiusShape;
+    shape[14] = 0xf952dc00;
+    shape[24] = 0x9143c370;
+    shape[25] = 0xf945da10;
+    return shape;
+}();
+inline constexpr auto kRelease308PaddingShape = [] {
+    auto shape = kPaddingShape;
+    shape[4] = 0x91406f71;
+    shape[5] = 0xfd44b220;
+    shape[7] = 0x91409b71;
+    shape[8] = 0xfd412220;
+    return shape;
+}();
+// 8.01.03.308 将 Dock 水平边距缓存在静态字段 (#0x2ae8)，拦截全部 9 处实时读取点。
+inline constexpr std::array<uint32_t, 8> kRelease308PaddingReadShape{
+    0xf9403f40, 0xf9557400, 0xf9402370, 0x6b10001f,
+    0x54000081, 0x91409b62, 0xf9410842, 0x94000000,
 };
 struct PaddingUnboxTarget {
     size_t offset;

@@ -470,7 +470,7 @@ void install_full_glass(uintptr_t v7, const std::vector<nhk::ExecutableMapping> 
     for (const auto &candidate : kProfiles) {
         if (v7 < candidate.v7) continue;
         base = v7 - candidate.v7;
-        if (verify(candidate.constructor,kConstructorShape) && verify(candidate.factory_tail,kFactoryTailShape)
+        if (verify(candidate.constructor,kConstructorShape) && verify(candidate.factory_tail,candidate.factory_tail_shape)
             && verify(candidate.dark_call,candidate.dark_shape) && verify(candidate.light_call,candidate.light_shape)) {
             if (selected) return; // Refuse an ambiguous profile.
             selected = &candidate;
@@ -566,11 +566,15 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
         std::vector<uintptr_t> release8593_strategies, release8593_glass_radii, release8593_advanced_radii;
         using namespace home_native_dock;
         constexpr std::array no_label_shapes{kNoLabelLayoutShape, kNoLabelOffsetShape, kNoLabelPositionShape};
+        constexpr std::array r308_no_label_shapes{kNoLabelLayoutShape, kRelease308NoLabelOffsetShape, kNoLabelPositionShape};
         std::array<std::vector<std::pair<uintptr_t, uintptr_t>>, no_label_shapes.size()> no_label_calls;
+        std::vector<std::pair<uintptr_t, uintptr_t>> r308_no_label_offset_calls;
         std::vector<uintptr_t> modern_backgrounds, modern_strategies, modern_glass_radii,
             modern_advanced_radii, modern_paddings;
+        std::vector<uintptr_t> release308_gates, release308_strategies, release308_glass_radii,
+            release308_advanced_radii, release308_paddings;
         struct ModernPaddingRead { uintptr_t address; uint32_t original; uint32_t reg; };
-        std::vector<ModernPaddingRead> modern_padding_reads;
+        std::vector<ModernPaddingRead> modern_padding_reads, release308_padding_reads;
         for (const auto &mapping : generation) {
             std::vector<uint32_t> code((mapping.end - mapping.begin) / 4);
             if (!nhk::safe_read(mapping.begin, std::as_writable_bytes(std::span(code)))) continue;
@@ -588,6 +592,8 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                 const auto candidate = std::span(code).subspan(i);
                 if (need_native && code[i] == home_native_dock::kGateShape[0]
                     && home_native_dock::matches(candidate,home_native_dock::kGateShape)) gates.push_back(mapping.begin+i*4);
+                if (need_native && code[i] == home_native_dock::kRelease308GateShape[0]
+                    && home_native_dock::matches(candidate,home_native_dock::kRelease308GateShape)) release308_gates.push_back(mapping.begin+i*4);
                 if (need_native && code[i] == home_native_dock::kSupportShape[0]
                     && home_native_dock::matches(candidate,home_native_dock::kSupportShape)) supports.push_back(mapping.begin+i*4);
                 if (need_native && code[i] == home_native_dock::kNewSupportShape[0]
@@ -607,12 +613,24 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                             unbox->reg,
                         });
                 }
+                if (need_native && code[i] == kRelease308PaddingReadShape[0] && matches(candidate, kRelease308PaddingReadShape)) {
+                    if (const auto unbox = find_padding_unbox(candidate.subspan(kRelease308PaddingReadShape.size())))
+                        release308_padding_reads.push_back({
+                            mapping.begin + (i + kRelease308PaddingReadShape.size() + unbox->offset) * 4,
+                            unbox->word,
+                            unbox->reg,
+                        });
+                }
                 if (need_native && (code[i] & 0xfc000000) == 0x94000000 && i + 1 < code.size()) {
                     for (size_t role = 0; role < no_label_shapes.size(); ++role) {
                         const auto &shape = no_label_shapes[role];
                         if (code[i + 1] != shape[1] || !matches(candidate, shape)) continue;
                         const uintptr_t call = mapping.begin + i * 4;
                         no_label_calls[role].emplace_back(call + 4, call_target(call, code[i]));
+                    }
+                    if (code[i + 1] == kRelease308NoLabelOffsetShape[1] && matches(candidate, kRelease308NoLabelOffsetShape)) {
+                        const uintptr_t call = mapping.begin + i * 4;
+                        r308_no_label_offset_calls.emplace_back(call + 4, call_target(call, code[i]));
                     }
                 }
                 if (code[i] != 0xa9bf79fd) continue;
@@ -634,14 +652,19 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                     if (matches(candidate, kModernGlassRadiusShape)) modern_glass_radii.push_back(mapping.begin + i * 4);
                     if (matches(candidate, kModernAdvancedRadiusShape)) modern_advanced_radii.push_back(mapping.begin + i * 4);
                     if (matches(candidate, kModernPaddingShape)) modern_paddings.push_back(mapping.begin + i * 4);
+                    if (matches(candidate, kRelease308StrategyShape)) release308_strategies.push_back(mapping.begin + i * 4);
+                    if (matches(candidate, kRelease308GlassRadiusShape)) release308_glass_radii.push_back(mapping.begin + i * 4);
+                    if (matches(candidate, kRelease308AdvancedRadiusShape)) release308_advanced_radii.push_back(mapping.begin + i * 4);
+                    if (matches(candidate, kRelease308PaddingShape)) release308_paddings.push_back(mapping.begin + i * 4);
                 }
             }
         }
         if (need_native)
             __android_log_print(ANDROID_LOG_INFO, kTag,
-                "Native Dock scan: legacy_gates=%zu legacy_support=%zu new_support=%zu newer_support=%zu release8583_support=%zu strategies=%zu radius=%zu advanced=%zu padding=%zu",
-                gates.size(), supports.size(), new_supports.size(), newer_supports.size(), release8583_supports.size(),
-                strategies.size(), glass_radii.size(), advanced_radii.size(), paddings.size());
+                "Native Dock scan: legacy_gates=%zu r308_gates=%zu release8583_support=%zu modern_bg=%zu r308_strat=%zu r308_glass=%zu r308_adv=%zu r308_pad=%zu r308_pad_reads=%zu",
+                gates.size(), release308_gates.size(), release8583_supports.size(), modern_backgrounds.size(),
+                release308_strategies.size(), release308_glass_radii.size(), release308_advanced_radii.size(),
+                release308_paddings.size(), release308_padding_reads.size());
         // Refuse unsupported/ambiguous bodies; never derive an address from
         // load_bias, which includes the ZIP container offset for APK images.
         const auto install = [&](uintptr_t base, auto shape, size_t index,
@@ -689,6 +712,18 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                 native_gates.push_back({address, *source, home_native_dock::kGateShape[2], 0xd503201f});
                 __android_log_print(ANDROID_LOG_INFO, kTag,
                     "Native Dock capability gate found at %p", reinterpret_cast<void *>(address));
+            }
+        }
+        if (need_native && release308_gates.size() == 1) {
+            const uintptr_t address = release308_gates[0] + 2 * 4;
+            const auto source = source_at(generation, address);
+            if (source && source_at(inventory(), address) == source
+                && !std::ranges::any_of(native_gates, [&](const NativeGate &s) {
+                    return s.address == address && s.source == *source;
+                })) {
+                native_gates.push_back({address, *source, home_native_dock::kRelease308GateShape[2], 0xd503201f});
+                __android_log_print(ANDROID_LOG_INFO, kTag,
+                    "Native Dock 308 capability gate found at %p", reinterpret_cast<void *>(address));
             }
         }
         if (need_native && supports.size() == 1) {
@@ -826,10 +861,29 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
             add_gate(base + selected->position, 0x372000a0,
                 home_native_dock::kNoLabelFallthrough, "no-label-position", home_native_dock::kNoLabelPositionShape);
         }
+        const bool release308_layout = need_native && release8583_supports.size() == 1
+            && release308_gates.size() == 1 && modern_backgrounds.size() == 1
+            && release308_strategies.size() == 1 && release308_glass_radii.size() == 1
+            && release308_advanced_radii.size() == 1 && release308_paddings.size() == 1
+            && no_label_calls[0].size() == 1 && r308_no_label_offset_calls.size() == 1 && no_label_calls[2].size() == 1
+            && no_label_calls[0][0].second == r308_no_label_offset_calls[0].second
+            && no_label_calls[0][0].second == no_label_calls[2][0].second
+            && source_at(generation, no_label_calls[0][0].second);
+        if (release308_layout) {
+            __android_log_print(ANDROID_LOG_INFO, kTag, "Native Dock layout matched 8.01.03.308 by code signatures");
+            add_gate(release8583_supports[0] + 8, kRelease8583SupportShape[2], 0x14000001, "support");
+            add_gate(modern_backgrounds[0], kModernBackgroundShape[2], 0x14000008, "background");
+            add_gate(no_label_calls[0][0].first, r308_no_label_shapes[0][1], kNoLabelFallthrough,
+                "no-label-layout", r308_no_label_shapes[0]);
+            add_gate(r308_no_label_offset_calls[0].first, r308_no_label_shapes[1][1], kNoLabelFallthrough,
+                "no-label-offset", r308_no_label_shapes[1]);
+            add_gate(no_label_calls[2][0].first, r308_no_label_shapes[2][1], kNoLabelFallthrough,
+                "no-label-position", r308_no_label_shapes[2]);
+        }
         // The three Dock label callers must share a predicate in this image.
         // Unique layout and material signatures let compatible builds move
         // functions without requiring a new set of release offsets.
-        const bool modern_layout = need_native && release8583_supports.size() == 1
+        const bool modern_layout = !release308_layout && need_native && release8583_supports.size() == 1
             && gates.size() == 1 && modern_backgrounds.size() == 1
             && modern_strategies.size() == 1 && modern_glass_radii.size() == 1
             && modern_advanced_radii.size() == 1 && modern_paddings.size() == 1
@@ -849,7 +903,7 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
         // 8583 and 8593 share the support bytes. Choose exactly one complete
         // layout; a shared predicate alone must never select another image's RVAs.
         bool release8593 = false;
-        if (need_native && !modern_layout && release8583_supports.size() == 1) {
+        if (need_native && !release308_layout && !modern_layout && release8583_supports.size() == 1) {
             struct Layout {
                 uintptr_t support, background, layout, offset, position;
                 const char *name;
@@ -921,7 +975,13 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                 home_native_dock::kNoLabelFallthrough, "no-label-position", home_native_dock::kNoLabelPositionShape);
         }
         const bool release8583 = release8583_supports.size() == 1;
-        if (modern_layout) {
+        if (release308_layout) {
+            gates = std::move(release308_gates);
+            strategies = std::move(release308_strategies);
+            glass_radii = std::move(release308_glass_radii);
+            advanced_radii = std::move(release308_advanced_radii);
+            paddings = std::move(release308_paddings);
+        } else if (modern_layout) {
             strategies = std::move(modern_strategies);
             glass_radii = std::move(modern_glass_radii);
             advanced_radii = std::move(modern_advanced_radii);
@@ -937,16 +997,21 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
             advanced_radii = std::move(release8583_advanced_radii);
             paddings = std::move(release8583_paddings);
         }
-        const auto &strategy_shape = modern_layout ? kModernStrategyShape
+        const auto &gate_shape = release308_layout ? kRelease308GateShape : kGateShape;
+        const auto &strategy_shape = release308_layout ? kRelease308StrategyShape
+            : modern_layout ? kModernStrategyShape
             : release8593 ? kRelease8593StrategyShape
             : release8583 ? kRelease8583StrategyShape : kStrategyShape;
-        const auto &glass_shape = modern_layout ? kModernGlassRadiusShape
+        const auto &glass_shape = release308_layout ? kRelease308GlassRadiusShape
+            : modern_layout ? kModernGlassRadiusShape
             : release8593 ? kRelease8593GlassRadiusShape
             : release8583 ? kRelease8583GlassRadiusShape : kGlassRadiusShape;
-        const auto &advanced_shape = modern_layout ? kModernAdvancedRadiusShape
+        const auto &advanced_shape = release308_layout ? kRelease308AdvancedRadiusShape
+            : modern_layout ? kModernAdvancedRadiusShape
             : release8593 ? kRelease8593AdvancedRadiusShape
             : release8583 ? kRelease8583AdvancedRadiusShape : kAdvancedRadiusShape;
-        const auto &padding_shape = modern_layout ? kModernPaddingShape
+        const auto &padding_shape = release308_layout ? kRelease308PaddingShape
+            : modern_layout ? kModernPaddingShape
             : release8583 ? kRelease8583PaddingShape : kPaddingShape;
         if (need_native && gates.size()==1 && strategies.size()==1 && glass_radii.size()==1 && advanced_radii.size()==1 && paddings.size()==1) {
             std::array<uint32_t,109> strategy{};
@@ -958,7 +1023,7 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
                     && gate[2] == 0xd503201f) gate[2] = patched.original;
             }
             if (!home_native_dock::matches(std::span(strategy), strategy_shape)
-                || !home_native_dock::matches(std::span(gate), home_native_dock::kGateShape)) continue;
+                || !home_native_dock::matches(std::span(gate), gate_shape)) continue;
             // Discover both official class headers from the strategy's allocation
             // calls; class IDs are neither guessed nor pinned to a runtime address.
             const uintptr_t glass_stub=home_native_dock::call_target(strategies[0]+44*4,strategy[44]);
@@ -1000,10 +1065,11 @@ void update_effects(const std::vector<nhk::ExecutableMapping> &mappings,
             add_native(glass_radii[0]+22*4,glass_shape[22],2);
             add_native(advanced_radii[0]+28*4,advanced_shape[28],3);
             add_native(paddings[0]+9*4,padding_shape[9],4);
-            if (modern_layout && !modern_padding_reads.empty()) {
+            const auto &live_padding_reads = release308_layout ? release308_padding_reads : modern_padding_reads;
+            if ((release308_layout || modern_layout) && !live_padding_reads.empty()) {
                 __android_log_print(ANDROID_LOG_INFO, kTag,
-                    "Native Dock live padding reads matched: %zu sites", modern_padding_reads.size());
-                for (const auto &site : modern_padding_reads)
+                    "Native Dock live padding reads matched: %zu sites", live_padding_reads.size());
+                for (const auto &site : live_padding_reads)
                     add_native(site.address, site.original, 4, site.reg);
             }
         }

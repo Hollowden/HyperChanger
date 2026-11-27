@@ -25,6 +25,7 @@ uintptr_t dock_reveal_clip_vtable = 0;
 uintptr_t dock_reveal_backdrop_vtable = 0;
 uint32_t dock_reveal_cid_delta = 0;
 uint32_t dock_reveal_render_field_delta = 0;
+uint32_t dock_reveal_cid_profile = 0;
 void *dock_reveal_capture_original = nullptr;
 void dock_reveal_capture_entry();
 void *dock_reveal_icon_original = nullptr;
@@ -318,6 +319,7 @@ bool install(const Images &image) {
     dock_reveal_backdrop_vtable = image.engine + engine->backdrop_vtable;
     dock_reveal_cid_delta = profile.cid_delta;
     dock_reveal_render_field_delta = profile.render_field_delta;
+    dock_reveal_cid_profile = profile.cid_profile;
     struct Target { uintptr_t address; void *replacement; void **continuation; };
     const std::array<Target, 6> targets{{
         {image.engine+engine->paint, reinterpret_cast<void *>(paint), reinterpret_cast<void **>(&original_paint)},

@@ -89,10 +89,33 @@ inline constexpr auto kRelease8593LightCallShape = [] {
     shape[12] = 0xf945b884;
     return shape;
 }();
+inline constexpr auto kRelease308FactoryTailShape = [] {
+    auto shape = kFactoryTailShape;
+    shape[7] = 0xf85d83a2;
+    shape[10] = 0xfc5183a4;
+    return shape;
+}();
+inline constexpr auto kRelease308DarkCallShape = [] {
+    auto shape = kDarkCallShape;
+    shape[7] = 0x91420f71;
+    shape[8] = 0xfd413e23;
+    shape[11] = 0x9143db64;
+    shape[12] = 0xf940fc84;
+    return shape;
+}();
+inline constexpr auto kRelease308LightCallShape = [] {
+    auto shape = kLightCallShape;
+    shape[7] = 0x91409b71;
+    shape[8] = 0xfd400a23;
+    shape[11] = 0x9143db64;
+    shape[12] = 0xf940fc84;
+    return shape;
+}();
 struct Profile {
     uintptr_t v7, constructor, factory_tail, factory_call;
     uintptr_t dark_call, dark_return, light_call, light_return, factory;
     std::array<uint32_t, 17> dark_shape, light_shape;
+    std::array<uint32_t, 22> factory_tail_shape = kFactoryTailShape;
 };
 inline constexpr std::array kProfiles{
     Profile{kV7Rva, kConstructorRva, 0x117a1cc, kFactoryCallRva,
@@ -101,13 +124,16 @@ inline constexpr std::array kProfiles{
     Profile{0x17a64a4, 0x11764ac, 0x117637c, 0x11763c0,
         0x1175af8, 0x1175b30, 0x1176e88, 0x1176ec0, 0x1175b40,
         kRelease8593DarkCallShape, kRelease8593LightCallShape},
+    Profile{0x1885dd8, 0x1208398, 0x1208268, 0x12082ac,
+        0x12079e8, 0x1207a20, 0x1208d70, 0x1208da8, 0x1207a30,
+        kRelease308DarkCallShape, kRelease308LightCallShape, kRelease308FactoryTailShape},
 };
-// Only PC-relative BL displacements vary; pool offsets and every field write
-// are exact for the supplied 8583 image. Other versions fail closed.
+// Only PC-relative BL displacements and Dart pool loads from x27 vary.
 inline bool matches(std::span<const uint32_t> code, std::span<const uint32_t> shape) {
     if (code.size() < shape.size()) return false;
     for (size_t i=0; i<shape.size(); ++i) {
-        const uint32_t mask = (shape[i] & 0xfc000000) == 0x94000000 ? 0xfc000000 : 0xffffffff;
+        const uint32_t mask = (shape[i] & 0xfc000000) == 0x94000000 ? 0xfc000000 :
+            ((shape[i] & 0xffc00000) == 0xf9400000 && ((shape[i] >> 5) & 31) == 27) ? 0xffc003ff : 0xffffffff;
         if ((code[i]&mask) != (shape[i]&mask)) return false;
     }
     return true;
