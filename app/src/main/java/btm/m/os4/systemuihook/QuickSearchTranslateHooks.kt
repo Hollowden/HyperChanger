@@ -379,7 +379,13 @@ internal class QuickSearchTranslateHooks(
         // 2. 自动识别英文单词 / 英文短语 / 英文句子
         if (!current.autoDetectEnglish) return null
         if (trimmed.length < 2) return null
-        val lower = trimmed.lowercase()
+        // 兼容中文拼音输入法在未切换英文时写入的拼音分词符（如 re'he'ar'se -> rehearse）
+        val normalized = if (!trimmed.contains(' ') && (trimmed.count { it == '\'' || it == '’' } >= 2)) {
+            trimmed.replace("'", "").replace("’", "")
+        } else {
+            trimmed
+        }
+        val lower = normalized.lowercase()
         if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("www.") ||
             lower.contains("://") || lower.contains("@") || lower.contains("\\")
         ) return null
@@ -387,7 +393,7 @@ internal class QuickSearchTranslateHooks(
         var asciiLetters = 0
         var cjkChars = 0
         var digits = 0
-        for (ch in trimmed) {
+        for (ch in normalized) {
             when {
                 ch in 'a'..'z' || ch in 'A'..'Z' -> asciiLetters++
                 ch in '\u4e00'..'\u9fff' -> cjkChars++
@@ -399,7 +405,7 @@ internal class QuickSearchTranslateHooks(
         if (cjkChars > 0) return null
         // 纯编号/型号（数字占比过高）不触发
         if (digits > asciiLetters) return null
-        return ParsedQuery(trimmed, explicit = false)
+        return ParsedQuery(normalized, explicit = false)
     }
 
     private fun resolveTargetLanguage(text: String, preferred: QuickSearchTranslateLanguage): QuickSearchTranslateLanguage {
@@ -792,8 +798,48 @@ internal class QuickSearchTranslateHooks(
 
         private val d = activity.resources.displayMetrics.density
         private fun dp(v: Float): Int = (v * d + 0.5f).toInt()
-        private val isDark: Boolean
-            get() = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        private val rootLoc = IntArray(2)
+        private val anchorLoc = IntArray(2)
+        private val statusBarHeightPx: Int by lazy {
+            val id = activity.resources.getIdentifier("status_bar_height", "dimen", "android")
+            if (id != 0) activity.resources.getDimensionPixelSize(id) else dp(36f)
+        }
+        private val preDrawListener = android.view.ViewTreeObserver.OnPreDrawListener {
+            syncCardPositionWithInput()
+            true
+        }
+
+        private fun findVisibleInputAnchor(): View {
+            val visibleEdit = editTexts.firstOrNull { it.isShown } ?: activeEditText
+            var cur: View? = visibleEdit
+            while (cur != null && cur !== inputContainer) {
+                val entryName = runCatching {
+                    if (cur.id != View.NO_ID) activity.resources.getResourceEntryName(cur.id) else null
+                }.getOrNull()
+                if (entryName == "input_view_container") return cur
+                cur = cur.parent as? View
+            }
+            return if (visibleEdit.isShown && visibleEdit.height > 0) visibleEdit else inputContainer
+        }
+
+        private fun syncCardPositionWithInput() {
+            if (cardContainer.visibility != View.VISIBLE) return
+            val cardBottom = cardContainer.bottom
+            if (cardBottom <= 0) return
+            val anchor = findVisibleInputAnchor()
+            root.getLocationInWindow(rootLoc)
+            anchor.getLocationInWindow(anchorLoc)
+            val anchorTopInRoot = anchorLoc[1] - rootLoc[1]
+            if (anchorTopInRoot <= 0) return
+            // 始终紧贴当前可见搜索栏正上方 12dp，随输入法弹出/收起实时 120Hz 同步升降
+            val desiredBottom = anchorTopInRoot - dp(12f)
+            val minBottom = statusBarHeightPx + dp(12f) + cardContainer.height
+            val clampedBottom = desiredBottom.coerceAtLeast(minBottom.coerceAtMost(desiredBottom))
+            val newTxY = (clampedBottom - cardBottom).toFloat()
+            if (kotlin.math.abs(cardContainer.translationY - newTxY) > 0.5f) {
+                cardContainer.translationY = newTxY
+            }
+        }
 
         private val cardContainer = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -842,6 +888,7 @@ internal class QuickSearchTranslateHooks(
                 bottomMargin = dp(10f)
             }
             root.addView(cardContainer, lp)
+            root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
             editTexts.forEach { et ->
                 val w = object : TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -930,14 +977,16 @@ internal class QuickSearchTranslateHooks(
             pendingRunnable?.let(mainHandler::removeCallbacks)
             pendingRunnable = null
             seq.incrementAndGet()
+            runCatching { root.viewTreeObserver.removeOnPreDrawListener(preDrawListener) }
             boundWatchers.forEach { (et, w) -> runCatching { et.removeTextChangedListener(w) } }
             boundWatchers.clear()
             runCatching { (cardContainer.parent as? ViewGroup)?.removeView(cardContainer) }
         }
 
         private fun applyCardSurface() {
-            val bgColor = if (isDark) Color.argb(226, 30, 32, 38) else Color.argb(236, 248, 249, 252)
-            val strokeColor = if (isDark) Color.argb(46, 255, 255, 255) else Color.argb(30, 0, 0, 0)
+            // 小米下拉搜索页面无论系统深浅色均采用深色毛玻璃底图与白字，统一使用高对比深色磨砂玻璃避免透字且融入原生视觉
+            val bgColor = Color.argb(244, 24, 28, 38)
+            val strokeColor = Color.argb(52, 255, 255, 255)
             cardContainer.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(22f).toFloat()
@@ -949,17 +998,12 @@ internal class QuickSearchTranslateHooks(
                 View::class.java.getMethod("setMiBackgroundBlurMode", Int::class.javaPrimitiveType)
                     .invoke(cardContainer, 1)
                 View::class.java.getMethod("setMiBackgroundBlurRadius", Int::class.javaPrimitiveType)
-                    .invoke(cardContainer, dp(28f))
+                    .invoke(cardContainer, dp(32f))
             }
         }
 
         private fun pillBg(accent: Boolean = false): GradientDrawable {
-            val fill = when {
-                accent && isDark -> Color.argb(66, 94, 165, 255)
-                accent -> Color.argb(36, 13, 132, 255)
-                isDark -> Color.argb(36, 255, 255, 255)
-                else -> Color.argb(18, 0, 0, 0)
-            }
+            val fill = if (accent) Color.argb(68, 94, 165, 255) else Color.argb(36, 255, 255, 255)
             return GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(99f).toFloat()
@@ -969,9 +1013,9 @@ internal class QuickSearchTranslateHooks(
 
         private fun buildUi() {
             applyCardSurface()
-            val textPrimary = if (isDark) Color.rgb(245, 246, 250) else Color.rgb(24, 26, 32)
-            val textSecondary = if (isDark) Color.rgb(176, 182, 196) else Color.rgb(96, 104, 118)
-            val accentColor = if (isDark) Color.rgb(112, 180, 255) else Color.rgb(13, 132, 255)
+            val textPrimary = Color.rgb(246, 248, 252)
+            val textSecondary = Color.rgb(184, 192, 208)
+            val accentColor = Color.rgb(118, 186, 255)
 
             // 1. 顶部栏：词头 + 目标语言快切 + 关闭
             val headerRow = LinearLayout(activity).apply {
@@ -1186,8 +1230,19 @@ internal class QuickSearchTranslateHooks(
         }
 
         private fun adjustScrollMaxHeight() {
-            val maxH = dp(if (expanded) 340f else 190f)
             scrollView.post {
+                val anchor = findVisibleInputAnchor()
+                root.getLocationInWindow(rootLoc)
+                anchor.getLocationInWindow(anchorLoc)
+                val anchorTop = anchorLoc[1] - rootLoc[1]
+                // 扣除状态栏、顶底间距与卡片头部/底部操作栏高度，确保输入法弹起时卡片绝不顶出屏幕顶部
+                val availScrollH = if (anchorTop > statusBarHeightPx + dp(180f)) {
+                    anchorTop - statusBarHeightPx - dp(156f)
+                } else {
+                    dp(200f)
+                }
+                val preferredMaxH = dp(if (expanded) 340f else 190f)
+                val maxH = minOf(preferredMaxH, availScrollH.coerceAtLeast(dp(96f)))
                 val contentH = bodyColumn.height
                 val lp = scrollView.layoutParams
                 val targetH = if (contentH > maxH) maxH else ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1195,6 +1250,7 @@ internal class QuickSearchTranslateHooks(
                     lp.height = targetH
                     scrollView.layoutParams = lp
                 }
+                syncCardPositionWithInput()
             }
         }
 
@@ -1232,8 +1288,8 @@ internal class QuickSearchTranslateHooks(
         private fun renderResult(res: TranslationResult) {
             lastResult = res
             applyCardSurface()
-            val accentColor = if (isDark) Color.rgb(112, 180, 255) else Color.rgb(13, 132, 255)
-            val tagColor = if (isDark) Color.rgb(142, 212, 168) else Color.rgb(24, 144, 78)
+            val accentColor = Color.rgb(118, 186, 255)
+            val tagColor = Color.rgb(134, 224, 174)
 
             headerTitle.text = res.query
             langChip.text = "译→${res.targetLang.shortLabel} ▾"
