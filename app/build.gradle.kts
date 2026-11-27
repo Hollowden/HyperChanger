@@ -25,8 +25,8 @@ android {
         applicationId = "btm.m.os4.systemuihook"
         minSdk = 35
         targetSdk = 37
-        versionCode = 1020256
-        versionName = "1.2.2-hollowden.16"
+        versionCode = 1020257
+        versionName = "1.2.2-hollowden.17"
         buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
         ndk { abiFilters += "arm64-v8a" }
 

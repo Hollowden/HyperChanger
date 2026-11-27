@@ -130,6 +130,7 @@ internal fun restartScopesForPreference(group: String, key: String): Set<ScopeAp
         key == KEY_GMS_QUICK_SHARE_ISLAND -> setOf(ScopeApplication.GOOGLE_PLAY_SERVICES)
         key.startsWith("system_update_") -> setOf(ScopeApplication.SYSTEM_UPDATE)
         key.startsWith("screenrecorder_") -> setOf(ScopeApplication.SCREEN_RECORDER, ScopeApplication.XIAOMI_HEALTH)
+        key.startsWith("quick_search_translate_") -> setOf(ScopeApplication.QUICK_SEARCH_BOX)
         key.startsWith("super_xiaoai_") -> setOf(ScopeApplication.SUPER_XIAOAI_IME)
         key.startsWith("raster_wallpaper_") -> setOf(ScopeApplication.SYSTEM_UI, ScopeApplication.WALLPAPER)
         key.startsWith("lockscreen_") || key.startsWith("mini_player_") || key.startsWith("lift_to_wake_") ||

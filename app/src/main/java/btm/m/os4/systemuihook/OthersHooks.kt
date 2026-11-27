@@ -64,6 +64,10 @@ internal class OthersHooks(
     private val joyoseHooks = JoyoseHooks(module)
     private val settingsFloatingSearchHooks = SettingsFloatingSearchHooks(module, hookDeoptimized)
     private val settingsTitleBarBlurHooks = SettingsTitleBarBlurHooks(module, hookDeoptimized)
+    private val quickSearchTranslateHooks = QuickSearchTranslateHooks(module, hookDeoptimized, logTag)
+
+    fun installQuickSearchTranslateHooks(classLoader: ClassLoader, preferences: SharedPreferences) =
+        quickSearchTranslateHooks.install(classLoader, preferences)
 
     fun installSettingsFloatingSearchHooks(param: PackageLoadedParam, preferences: SharedPreferences) =
         settingsFloatingSearchHooks.install(param, preferences)

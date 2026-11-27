@@ -329,6 +329,7 @@ private enum class PageId {
     SOFTWARE_UPDATE, UPDATE_LOG, OTHER, SIDEBAR, SIDEBAR_GLASS, PERSONAL_ASSISTANT, ASSISTANT_WIDGET_GLASS, CONTACTS_DIALER, CONTACTS_DIALER_BACKGROUND, PORTAL, PORTAL_MATERIAL, APP_NAVIGATION, RESTART_SCOPES, DISCLAIMER, SIMULATE_MEDIA_NOTIFICATION, SIMULATE_ISLAND, MODULE_PRESET_IMPORT_PREVIEW,
     STATUS_MOBILE_NETWORK_TYPE_TUNING,
     CLOUD_CONTROL,
+    QUICK_SEARCH_TRANSLATE,
 }
 
 private data class CategorySearchItem(
@@ -589,6 +590,7 @@ private fun categoryDeepSearchItems(): List<CategorySearchItem> {
         entry("传送门材质调整", "传送门材质调整", PageId.PORTAL_MATERIAL, ScopeApplication.PORTAL),
         entry("环境检测", "环境检测", PageId.ENVIRONMENT_DETECTION, ScopeApplication.SECURITY_CENTER),
         entry("cloudControlTitle", "云控", PageId.CLOUD_CONTROL, ScopeApplication.SECURITY_CENTER),
+        entry("quick_search_translate_title", "下拉搜索增强", PageId.QUICK_SEARCH_TRANSLATE, ScopeApplication.QUICK_SEARCH_BOX),
     )
 }
 
@@ -684,6 +686,7 @@ private fun categorySearchKeywords(page: PageId?): String = when (page) {
     PageId.APP_NAVIGATION -> "应用 底部导航 底栏 标签栏 liquid glass bottom navigation tab bar"
     PageId.ENVIRONMENT_DETECTION -> "环境检测 root lsposed xposed bootloader environment detection"
     PageId.CLOUD_CONTROL -> "云控 cloud control"
+    PageId.QUICK_SEARCH_TRANSLATE -> "下拉搜索 翻译 词典 单词 欧路 deepl edge 搜索引擎 quick search translate dictionary"
     PageId.OTHER -> "其他 屏幕录制 健康 互传 screen recorder health airdrop"
     else -> ""
 }
@@ -1195,6 +1198,7 @@ private fun Root(
                 SettingsAdvancedColorStyleSettingsStore(context).syncRemote(it)
                 superXiaoAiStore.syncRemote(it)
                 systemUpdateStore.syncRemote(it)
+                QuickSearchTranslateSettingsStore(context).syncRemote(it)
                 settings = hooks.settings
                 navigationSettings = navigation.settings
                 lockscreenCapsuleSettings = lockscreenCapsules.settings
@@ -2392,6 +2396,11 @@ private fun OtherPage(
                     onClick = { open(PageId.PERSONAL_ASSISTANT) },
                 )
                 SharedViewArrowPreference(
+                    title = tr("quick_search_translate_title", "下拉搜索增强"),
+                    summary = tr("quick_search_translate_entry_summary", "实时学术查词翻译、欧路/DeepL联动与自定义搜索引擎/Edge"),
+                    onClick = { open(PageId.QUICK_SEARCH_TRANSLATE) },
+                )
+                SharedViewArrowPreference(
                     title = tr("环境检测", "环境检测"),
                     summary = tr("实验性功能", "实验性功能"),
                     onClick = { open(PageId.ENVIRONMENT_DETECTION) },
@@ -2825,6 +2834,7 @@ private fun RestartScopesPage(
         ScopeApplication.SETTINGS,
         ScopeApplication.GOOGLE_PLAY_SERVICES,
         ScopeApplication.PERSONAL_ASSISTANT,
+        ScopeApplication.QUICK_SEARCH_BOX,
         ScopeApplication.SYSTEM_UPDATE,
         ScopeApplication.SOUND_EFFECT,
         ScopeApplication.MI_SETTINGS,
@@ -5078,6 +5088,7 @@ private fun Detail(
         PageId.OTHER -> OtherPage(airDropSettings, updateAirDrop, screenRecorder, updateScreenRecorder, openPage, back)
         PageId.ENVIRONMENT_DETECTION -> EnvironmentDetectionPage(back)
         PageId.CLOUD_CONTROL -> CloudControlPage(back)
+        PageId.QUICK_SEARCH_TRANSLATE -> QuickSearchTranslatePage(back)
         PageId.CONTACTS_DIALER -> ContactsDialerPage({ openPage(PageId.CONTACTS_DIALER_BACKGROUND) }, back)
         PageId.CONTACTS_DIALER_BACKGROUND -> ContactsDialerBackgroundPage(back)
         PageId.SIDEBAR -> SidebarPage({ openPage(PageId.SIDEBAR_GLASS) }, back)

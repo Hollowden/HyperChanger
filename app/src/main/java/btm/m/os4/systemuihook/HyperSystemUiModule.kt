@@ -1166,6 +1166,12 @@ class HyperSystemUiModule : XposedModule() {
             }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install Joyose hooks", error) }
             return
         }
+        if (param.packageName == "com.android.quicksearchbox") {
+            runCatching {
+                othersHooks.installQuickSearchTranslateHooks(param.defaultClassLoader, getRemotePreferences(REMOTE_PREFERENCE_GROUP))
+            }.onFailure { error -> btm.m.os4.systemuihook.HookModuleLogger.log(this, Log.ERROR, TAG, "Could not install QuickSearchBox translate hooks", error) }
+            return
+        }
         if (param.packageName == SETTINGS_PACKAGE) {
             runCatching {
                 othersHooks.installSettingsFloatingSearchHooks(param, getRemotePreferences(REMOTE_PREFERENCE_GROUP))

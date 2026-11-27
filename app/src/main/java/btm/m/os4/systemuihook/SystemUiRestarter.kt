@@ -165,4 +165,5 @@ enum class ScopeApplication(val title: String, val packageName: String) {
     GOOGLE_PLAY_SERVICES("Google Play 服务", "com.google.android.gms"),
     HTML_VIEWER("HTML 查看器", "com.android.htmlviewer"),
     JOYOSE("Joyose", "com.xiaomi.joyose"),
+    QUICK_SEARCH_BOX("搜索", "com.android.quicksearchbox"),
 }
