@@ -88,6 +88,10 @@ internal class QuickSearchTranslateHooks(
     @Volatile private var settings = QuickSearchTranslateSettings()
     private var prefListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
+    private companion object {
+        const val EXTRA_HC_HANDLED = "hc_qsb_custom_search_handled"
+    }
+
     fun install(classLoader: ClassLoader, preferences: SharedPreferences) {
         if (installed) return
         settings = readQuickSearchTranslateSettings(preferences)
@@ -125,11 +129,118 @@ internal class QuickSearchTranslateHooks(
                     chain.proceed()
                 }
 
+            installBrowserIntentRedirectHooks()
+
             installed = true
             HookModuleLogger.log(module, Log.INFO, logTag, "Installed QuickSearchBox translate card hooks")
         }.onFailure { err ->
             HookModuleLogger.log(module, Log.WARN, logTag, "Could not install QuickSearchBox translate hooks", err)
         }
+    }
+
+    private fun installBrowserIntentRedirectHooks() {
+        // 统一拦截小米搜索发往内置浏览器 (FullSearchActivity / 网页搜索) 的所有跳转（含点击搜索建议/历史/热词）
+        runCatching {
+            val actStart = Activity::class.java.getDeclaredMethod(
+                "startActivityForResult",
+                Intent::class.java,
+                Int::class.javaPrimitiveType,
+                Bundle::class.java,
+            )
+            hookDeoptimized(actStart)
+                .setExceptionMode(ExceptionMode.PROTECTIVE)
+                .setId("quick-search-translate:act-startActivity")
+                .intercept { chain ->
+                    val ctx = chain.thisObject as? Context
+                    val intent = chain.args.getOrNull(0) as? Intent
+                    if (ctx != null && intent != null && maybeRedirectWebSearchIntent(ctx, intent)) {
+                        return@intercept null
+                    }
+                    chain.proceed()
+                }
+        }
+        runCatching {
+            val ctxImpl = Class.forName("android.app.ContextImpl")
+            val ctxStart = ctxImpl.getDeclaredMethod("startActivity", Intent::class.java, Bundle::class.java)
+            hookDeoptimized(ctxStart)
+                .setExceptionMode(ExceptionMode.PROTECTIVE)
+                .setId("quick-search-translate:ctx-startActivity")
+                .intercept { chain ->
+                    val ctx = chain.thisObject as? Context
+                    val intent = chain.args.getOrNull(0) as? Intent
+                    if (ctx != null && intent != null && maybeRedirectWebSearchIntent(ctx, intent)) {
+                        return@intercept null
+                    }
+                    chain.proceed()
+                }
+        }
+    }
+
+    private fun maybeRedirectWebSearchIntent(context: Context, intent: Intent): Boolean {
+        val current = settings
+        if (!current.customWebSearchActive) return false
+        if (intent.getBooleanExtra(EXTRA_HC_HANDLED, false)) return false
+
+        val targetPkg = intent.component?.packageName ?: intent.`package`
+        val targetCls = intent.component?.className.orEmpty()
+        val dataUri = intent.data
+        val dataStr = dataUri?.toString().orEmpty()
+
+        val isFullSearch = targetCls.contains("FullSearch", ignoreCase = true)
+        val isMiBrowserWeb = targetPkg == "com.android.browser" &&
+            (dataStr.startsWith("http://", ignoreCase = true) || dataStr.startsWith("https://", ignoreCase = true) || isFullSearch)
+
+        if (!isFullSearch && !isMiBrowserWeb) return false
+
+        // 提取搜索关键词（优先 Extras，再解析搜索 URL 参数）
+        val extractedQuery = extractSearchQueryFromIntent(intent, dataUri)
+        val finalUrl = when {
+            !extractedQuery.isNullOrBlank() -> buildWebSearchUrl(extractedQuery, current)
+            dataStr.startsWith("http://", ignoreCase = true) || dataStr.startsWith("https://", ignoreCase = true) -> dataStr
+            else -> return false
+        }
+
+        return launchUrlWithConfiguredBrowser(context, finalUrl, current)
+    }
+
+    private fun extractSearchQueryFromIntent(intent: Intent, uri: Uri?): String? {
+        val extraKeys = listOf("query", "search_word", "keyword", "word", "q", "search_key", "text", "key_word", "searchWord")
+        val extras = runCatching { intent.extras }.getOrNull()
+        if (extras != null) {
+            for (k in extraKeys) {
+                val v = runCatching { extras.getString(k) }.getOrNull()?.trim()
+                if (!v.isNullOrEmpty() && !v.startsWith("http://", true) && !v.startsWith("https://", true)) {
+                    return v
+                }
+            }
+            // 部分小米搜索会通过 url / target_url extra 传搜索页链接
+            for (k in listOf("url", "target_url", "jump_url", "search_url")) {
+                val u = runCatching { extras.getString(k) }.getOrNull()?.trim()
+                if (!u.isNullOrEmpty()) {
+                    extractQueryFromUri(Uri.parse(u))?.let { return it }
+                }
+            }
+        }
+        if (uri != null) {
+            extractQueryFromUri(uri)?.let { return it }
+        }
+        return null
+    }
+
+    private fun extractQueryFromUri(uri: Uri): String? {
+        if (!uri.isHierarchical) return null
+        val host = uri.host.orEmpty().lowercase()
+        val path = uri.path.orEmpty().lowercase()
+        val looksLikeSearch = path.contains("search") || path == "/s" || host.contains("baidu.") ||
+            host.contains("bing.") || host.contains("google.") || host.contains("sogou.") ||
+            host.contains("sm.cn") || host.contains("so.com") || host.contains("quark.") ||
+            host.contains("mi.com") || host.contains("xiaomi.")
+        if (!looksLikeSearch) return null
+        for (param in listOf("wd", "word", "q", "query", "keyword", "kw", "text")) {
+            val v = runCatching { uri.getQueryParameter(param) }.getOrNull()?.trim()
+            if (!v.isNullOrEmpty()) return v
+        }
+        return null
     }
 
     private fun buildWebSearchUrl(query: String, current: QuickSearchTranslateSettings): String {
@@ -158,28 +269,51 @@ internal class QuickSearchTranslateHooks(
         }
     }
 
-    private fun launchCustomWebSearch(activity: Activity, query: String): Boolean {
-        val current = settings
-        if (!current.customWebSearchActive) return false
-        val url = buildWebSearchUrl(query, current)
+    private fun launchUrlWithConfiguredBrowser(
+        context: Context,
+        url: String,
+        current: QuickSearchTranslateSettings,
+    ): Boolean {
         val uri = Uri.parse(url)
         val browserPkg = current.browser.packageName
-        if (browserPkg != null && isPackageInstalled(activity, browserPkg)) {
+        if (browserPkg != null && isPackageInstalled(context, browserPkg)) {
             val targeted = Intent(Intent.ACTION_VIEW, uri).apply {
                 setPackage(browserPkg)
+                putExtra(EXTRA_HC_HANDLED, true)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            if (runCatching { activity.startActivity(targeted); true }.getOrDefault(false)) {
+            if (runCatching { context.startActivity(targeted); true }.getOrDefault(false)) {
                 return true
             }
         }
         val fallback = Intent(Intent.ACTION_VIEW, uri).apply {
+            putExtra(EXTRA_HC_HANDLED, true)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        return runCatching { activity.startActivity(fallback); true }.getOrDefault(false)
+        return runCatching { context.startActivity(fallback); true }.getOrDefault(false)
     }
 
-    private fun attachToActivity(activity: Activity) {
+    private fun launchCustomWebSearch(activity: Activity, query: String): Boolean {
+        val current = settings
+        if (!current.customWebSearchActive) return false
+        val url = buildWebSearchUrl(query, current)
+        return launchUrlWithConfiguredBrowser(activity, url, current)
+    }
+
+    private fun <T : View> collectViewsById(root: View, id: Int, cls: Class<T>, out: MutableList<T>) {
+        if (id == 0) return
+        if (root.id == id && cls.isInstance(root)) {
+            @Suppress("UNCHECKED_CAST")
+            out.add(root as T)
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                collectViewsById(root.getChildAt(i), id, cls, out)
+            }
+        }
+    }
+
+    private fun attachToActivity(activity: Activity, allowRetry: Boolean = true) {
         if (activity.isFinishing || activity.isDestroyed) return
         if (controllers.containsKey(activity)) return
         val pkg = activity.packageName
@@ -191,32 +325,26 @@ internal class QuickSearchTranslateHooks(
 
         val root = (if (rootId != 0) activity.findViewById<View>(rootId) else null) as? RelativeLayout
         val inputContainer = if (inputContainerId != 0) activity.findViewById<View>(inputContainerId) else null
-        val editText = (if (queryTextId != 0) activity.findViewById<View>(queryTextId) else null) as? EditText
-        val webBtn = if (webBtnId != 0) activity.findViewById<View>(webBtnId) else null
+        val editTexts = mutableListOf<EditText>()
+        val webBtns = mutableListOf<View>()
+        if (inputContainer != null) {
+            // 小米搜索 InputViewContainer 内置 3 套共用相同 ID 的输入布局，前 2 套默认 GONE，必须全量绑定
+            collectViewsById(inputContainer, queryTextId, EditText::class.java, editTexts)
+            collectViewsById(inputContainer, webBtnId, View::class.java, webBtns)
+        } else if (root != null) {
+            collectViewsById(root, queryTextId, EditText::class.java, editTexts)
+            collectViewsById(root, webBtnId, View::class.java, webBtns)
+        }
 
-        if (root == null || inputContainer == null || editText == null) {
-            // 视图尚未完全 inflate，轻量延迟重试一次
-            mainHandler.postDelayed({
-                if (!activity.isFinishing && !activity.isDestroyed && !controllers.containsKey(activity)) {
-                    attachToActivityRetry(activity)
-                }
-            }, 250L)
+        if (root == null || inputContainer == null || editTexts.isEmpty()) {
+            if (allowRetry) {
+                mainHandler.postDelayed({
+                    attachToActivity(activity, allowRetry = false)
+                }, 250L)
+            }
             return
         }
-        val controller = OverlayController(activity, root, inputContainer, editText, webBtn)
-        controllers[activity] = controller
-        controller.bind()
-    }
-
-    private fun attachToActivityRetry(activity: Activity) {
-        val pkg = activity.packageName
-        val res = activity.resources
-        val root = activity.findViewById<View>(res.getIdentifier("search_activity_view", "id", pkg)) as? RelativeLayout ?: return
-        val inputContainer = activity.findViewById<View>(res.getIdentifier("input_container", "id", pkg)) ?: return
-        val editText = activity.findViewById<View>(res.getIdentifier("query_text", "id", pkg)) as? EditText ?: return
-        val webBtnId = res.getIdentifier("search_in_web_btn", "id", pkg)
-        val webBtn = if (webBtnId != 0) activity.findViewById<View>(webBtnId) else null
-        val controller = OverlayController(activity, root, inputContainer, editText, webBtn)
+        val controller = OverlayController(activity, root, inputContainer, editTexts, webBtns)
         controllers[activity] = controller
         controller.bind()
     }
@@ -649,8 +777,8 @@ internal class QuickSearchTranslateHooks(
         private val activity: Activity,
         private val root: RelativeLayout,
         private val inputContainer: View,
-        private val editText: EditText,
-        private val webBtn: View?,
+        private val editTexts: List<EditText>,
+        private val webBtns: List<View>,
     ) {
         private val seq = AtomicInteger(0)
         private var pendingRunnable: Runnable? = null
@@ -659,6 +787,8 @@ internal class QuickSearchTranslateHooks(
         private var expanded = false
         private var lastResult: TranslationResult? = null
         private var lastQueryText: String = ""
+        private var activeEditText: EditText = editTexts.firstOrNull { it.isShown } ?: editTexts.last()
+        private val boundWatchers = mutableListOf<Pair<EditText, TextWatcher>>()
 
         private val d = activity.resources.displayMetrics.density
         private fun dp(v: Float): Int = (v * d + 0.5f).toInt()
@@ -668,7 +798,7 @@ internal class QuickSearchTranslateHooks(
         private val cardContainer = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            elevation = dp(8f).toFloat()
+            elevation = dp(10f).toFloat()
             setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
             isClickable = true
             isFocusable = false
@@ -691,12 +821,13 @@ internal class QuickSearchTranslateHooks(
         private val eudicBtn = TextView(activity)
         private val deeplBtn = TextView(activity)
 
-        private val watcher = object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                onInputChanged(s?.toString().orEmpty())
+        private fun currentInputText(): String {
+            val visible = editTexts.firstOrNull { it.isShown }
+            if (visible != null) {
+                activeEditText = visible
+                return visible.text?.toString().orEmpty()
             }
+            return activeEditText.text?.toString().orEmpty()
         }
 
         fun bind() {
@@ -711,10 +842,30 @@ internal class QuickSearchTranslateHooks(
                 bottomMargin = dp(10f)
             }
             root.addView(cardContainer, lp)
-            editText.addTextChangedListener(watcher)
+            editTexts.forEach { et ->
+                val w = object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                    override fun afterTextChanged(s: Editable?) {
+                        val txt = s?.toString().orEmpty()
+                        if (et.isShown || et === activeEditText || txt.isNotEmpty()) {
+                            activeEditText = et
+                            onInputChanged(txt)
+                        }
+                    }
+                }
+                et.addTextChangedListener(w)
+                boundWatchers.add(et to w)
+            }
             installWebSearchInterceptors()
+            HookModuleLogger.log(
+                module,
+                Log.INFO,
+                logTag,
+                "Attached QuickSearchBox overlay (inputs=${editTexts.size}, webBtns=${webBtns.size}, engine=${settings.searchEngine}, browser=${settings.browserMode})",
+            )
             // 若打开时已有预填文本则同步一次
-            editText.text?.toString()?.takeIf { it.isNotBlank() }?.let { onInputChanged(it) }
+            currentInputText().takeIf { it.isNotBlank() }?.let { onInputChanged(it) }
         }
 
         private fun handleSearchAction(rawInput: String): Boolean {
@@ -737,38 +888,40 @@ internal class QuickSearchTranslateHooks(
         }
 
         private fun installWebSearchInterceptors() {
-            // 1. 包装输入框右侧「搜索」按钮点击，仅在显式翻译或启用自定义搜索引擎/Edge 时接管
-            if (webBtn != null) {
+            // 1. 包装所有输入布局中的「搜索」按钮点击，仅在显式翻译或启用自定义搜索引擎/Edge 时接管
+            webBtns.forEach { btn ->
                 val origClick = runCatching {
                     val infoField = View::class.java.getDeclaredField("mListenerInfo").apply { isAccessible = true }
-                    val info = infoField.get(webBtn) ?: return@runCatching null
+                    val info = infoField.get(btn) ?: return@runCatching null
                     info.javaClass.getDeclaredField("mOnClickListener").apply { isAccessible = true }.get(info) as? View.OnClickListener
                 }.getOrNull()
-                webBtn.setOnClickListener { v ->
-                    val raw = editText.text?.toString().orEmpty()
+                btn.setOnClickListener { v ->
+                    val raw = currentInputText()
                     if (!handleSearchAction(raw)) {
                         origClick?.onClick(v)
                     }
                 }
             }
-            // 2. 包装软键盘搜索/回车动作
-            val origEditorListener = runCatching {
-                val editorField = android.widget.TextView::class.java.getDeclaredField("mEditor").apply { isAccessible = true }
-                val editor = editorField.get(editText) ?: return@runCatching null
-                val contentField = editor.javaClass.getDeclaredField("mInputContentType").apply { isAccessible = true }
-                val content = contentField.get(editor) ?: return@runCatching null
-                content.javaClass.getDeclaredField("onEditorActionListener").apply { isAccessible = true }
-                    .get(content) as? android.widget.TextView.OnEditorActionListener
-            }.getOrNull()
-            editText.setOnEditorActionListener { tv, actionId, event ->
-                val isSubmit = actionId == EditorInfo.IME_ACTION_SEARCH ||
-                    actionId == EditorInfo.IME_ACTION_GO ||
-                    actionId == EditorInfo.IME_ACTION_DONE ||
-                    (event != null && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER)
-                if (isSubmit && handleSearchAction(tv.text?.toString().orEmpty())) {
-                    true
-                } else {
-                    origEditorListener?.onEditorAction(tv, actionId, event) ?: false
+            // 2. 包装所有输入框的软键盘搜索/回车动作
+            editTexts.forEach { et ->
+                val origEditorListener = runCatching {
+                    val editorField = android.widget.TextView::class.java.getDeclaredField("mEditor").apply { isAccessible = true }
+                    val editor = editorField.get(et) ?: return@runCatching null
+                    val contentField = editor.javaClass.getDeclaredField("mInputContentType").apply { isAccessible = true }
+                    val content = contentField.get(editor) ?: return@runCatching null
+                    content.javaClass.getDeclaredField("onEditorActionListener").apply { isAccessible = true }
+                        .get(content) as? android.widget.TextView.OnEditorActionListener
+                }.getOrNull()
+                et.setOnEditorActionListener { tv, actionId, event ->
+                    val isSubmit = actionId == EditorInfo.IME_ACTION_SEARCH ||
+                        actionId == EditorInfo.IME_ACTION_GO ||
+                        actionId == EditorInfo.IME_ACTION_DONE ||
+                        (event != null && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER)
+                    if (isSubmit && handleSearchAction(tv.text?.toString().orEmpty())) {
+                        true
+                    } else {
+                        origEditorListener?.onEditorAction(tv, actionId, event) ?: false
+                    }
                 }
             }
         }
@@ -777,7 +930,8 @@ internal class QuickSearchTranslateHooks(
             pendingRunnable?.let(mainHandler::removeCallbacks)
             pendingRunnable = null
             seq.incrementAndGet()
-            runCatching { editText.removeTextChangedListener(watcher) }
+            boundWatchers.forEach { (et, w) -> runCatching { et.removeTextChangedListener(w) } }
+            boundWatchers.clear()
             runCatching { (cardContainer.parent as? ViewGroup)?.removeView(cardContainer) }
         }
 
@@ -852,7 +1006,7 @@ internal class QuickSearchTranslateHooks(
                 background = pillBg()
                 setPadding(dp(9f), dp(4f), dp(9f), dp(4f))
                 setOnClickListener {
-                    dismissedQuery = editText.text?.toString()?.trim()
+                    dismissedQuery = currentInputText().trim()
                     cardContainer.visibility = View.GONE
                 }
             }
@@ -1056,6 +1210,7 @@ internal class QuickSearchTranslateHooks(
             copyBtn.visibility = View.GONE
             updateLocalAppButtons()
             cardContainer.visibility = View.VISIBLE
+            cardContainer.bringToFront()
             adjustScrollMaxHeight()
         }
 
@@ -1070,6 +1225,7 @@ internal class QuickSearchTranslateHooks(
             copyBtn.visibility = View.GONE
             updateLocalAppButtons()
             cardContainer.visibility = View.VISIBLE
+            cardContainer.bringToFront()
             adjustScrollMaxHeight()
         }
 
@@ -1177,6 +1333,7 @@ internal class QuickSearchTranslateHooks(
             expandBtn.text = if (expanded) "收起详释" else "展开学术详释"
             updateLocalAppButtons()
             cardContainer.visibility = View.VISIBLE
+            cardContainer.bringToFront()
             scrollView.scrollTo(0, 0)
             adjustScrollMaxHeight()
         }
