@@ -68,7 +68,7 @@ internal class QuickSearchTranslateHooks(
 ) {
     private var installed = false
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val controllers = Collections.synchronizedMap(WeakHashMap<Activity, OverlayController>())
+    private val controllers = Collections.synchronizedMap(WeakHashMap<RelativeLayout, OverlayController>())
     private val resultCache = object : LruCache<String, TranslationResult>(64) {}
 
     // 空闲 15 秒自动回收线程，杜绝常驻后台线程与额外功耗
@@ -92,6 +92,19 @@ internal class QuickSearchTranslateHooks(
         const val EXTRA_HC_HANDLED = "hc_qsb_custom_search_handled"
     }
 
+    private fun findDeclaredMethodInHierarchy(
+        startClass: Class<*>,
+        methodName: String,
+        vararg paramTypes: Class<*>,
+    ): java.lang.reflect.Method? {
+        var cur: Class<*>? = startClass
+        while (cur != null && cur != View::class.java && cur != Object::class.java) {
+            runCatching { return cur.getDeclaredMethod(methodName, *paramTypes) }
+            cur = cur.superclass
+        }
+        return null
+    }
+
     fun install(classLoader: ClassLoader, preferences: SharedPreferences) {
         if (installed) return
         settings = readQuickSearchTranslateSettings(preferences)
@@ -103,36 +116,66 @@ internal class QuickSearchTranslateHooks(
             }.also { preferences.registerOnSharedPreferenceChangeListener(it) }
         }
         runCatching {
-            val activityClass = classLoader.loadClass("com.android.quicksearchbox.SearchActivityTransparent")
-            val onCreate = activityClass.getDeclaredMethod("onCreate", Bundle::class.java)
-            hookDeoptimized(onCreate)
-                .setExceptionMode(ExceptionMode.PROTECTIVE)
-                .setId("quick-search-translate:onCreate")
-                .intercept { chain ->
-                    val res = chain.proceed()
-                    val activity = chain.thisObject as? Activity ?: return@intercept res
-                    if (settings.anyFeatureActive) {
-                        mainHandler.post { attachToActivity(activity) }
+            // 1. 主挂载点：直接 Hook SearchActivityViewSinglePane 继承链上的 onFinishInflate()
+            //    通吃 HyperOS 桌面下拉浮窗 (LauncherOverlayWindow:com.android.quicksearchbox) 与独立搜索 Activity
+            val viewClass = classLoader.loadClass("com.android.quicksearchbox.ui.SearchActivityViewSinglePane")
+            val onFinishInflate = findDeclaredMethodInHierarchy(viewClass, "onFinishInflate")
+            if (onFinishInflate != null) {
+                hookDeoptimized(onFinishInflate)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .setId("quick-search-translate:view-onFinishInflate")
+                    .intercept { chain ->
+                        val res = chain.proceed()
+                        val root = chain.thisObject as? RelativeLayout ?: return@intercept res
+                        if (settings.anyFeatureActive) {
+                            mainHandler.post { attachToRoot(root) }
+                        }
+                        res
                     }
-                    res
-                }
+            }
 
-            val onDestroy = activityClass.getDeclaredMethod("onDestroy")
-            hookDeoptimized(onDestroy)
-                .setExceptionMode(ExceptionMode.PROTECTIVE)
-                .setId("quick-search-translate:onDestroy")
-                .intercept { chain ->
-                    val activity = chain.thisObject as? Activity
-                    if (activity != null) {
-                        controllers.remove(activity)?.dispose()
+            // 2. 兜底挂载点：SearchActivityTransparent 独立 Activity 生命周期
+            runCatching {
+                val activityClass = classLoader.loadClass("com.android.quicksearchbox.SearchActivityTransparent")
+                val onCreate = activityClass.getDeclaredMethod("onCreate", Bundle::class.java)
+                hookDeoptimized(onCreate)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .setId("quick-search-translate:onCreate")
+                    .intercept { chain ->
+                        val res = chain.proceed()
+                        val activity = chain.thisObject as? Activity ?: return@intercept res
+                        if (settings.anyFeatureActive) {
+                            mainHandler.post { attachToActivity(activity) }
+                        }
+                        res
                     }
-                    chain.proceed()
-                }
+
+                val onDestroy = activityClass.getDeclaredMethod("onDestroy")
+                hookDeoptimized(onDestroy)
+                    .setExceptionMode(ExceptionMode.PROTECTIVE)
+                    .setId("quick-search-translate:onDestroy")
+                    .intercept { chain ->
+                        val activity = chain.thisObject as? Activity
+                        if (activity != null) {
+                            val rootId = activity.resources.getIdentifier("search_activity_view", "id", activity.packageName)
+                            val root = (if (rootId != 0) activity.findViewById<View>(rootId) else null) as? RelativeLayout
+                            if (root != null) {
+                                controllers.remove(root)?.dispose()
+                            }
+                        }
+                        chain.proceed()
+                    }
+            }
 
             installBrowserIntentRedirectHooks()
 
             installed = true
-            HookModuleLogger.log(module, Log.INFO, logTag, "Installed QuickSearchBox translate card hooks")
+            HookModuleLogger.log(
+                module,
+                Log.INFO,
+                logTag,
+                "Installed QuickSearchBox translate card hooks (viewHook=${onFinishInflate != null})",
+            )
         }.onFailure { err ->
             HookModuleLogger.log(module, Log.WARN, logTag, "Could not install QuickSearchBox translate hooks", err)
         }
@@ -293,11 +336,11 @@ internal class QuickSearchTranslateHooks(
         return runCatching { context.startActivity(fallback); true }.getOrDefault(false)
     }
 
-    private fun launchCustomWebSearch(activity: Activity, query: String): Boolean {
+    private fun launchCustomWebSearch(context: Context, query: String): Boolean {
         val current = settings
         if (!current.customWebSearchActive) return false
         val url = buildWebSearchUrl(query, current)
-        return launchUrlWithConfiguredBrowser(activity, url, current)
+        return launchUrlWithConfiguredBrowser(context, url, current)
     }
 
     private fun <T : View> collectViewsById(root: View, id: Int, cls: Class<T>, out: MutableList<T>) {
@@ -313,39 +356,44 @@ internal class QuickSearchTranslateHooks(
         }
     }
 
-    private fun attachToActivity(activity: Activity, allowRetry: Boolean = true) {
+    private fun attachToActivity(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed) return
-        if (controllers.containsKey(activity)) return
-        val pkg = activity.packageName
-        val res = activity.resources
-        val rootId = res.getIdentifier("search_activity_view", "id", pkg)
+        val rootId = activity.resources.getIdentifier("search_activity_view", "id", activity.packageName)
+        val root = (if (rootId != 0) activity.findViewById<View>(rootId) else null) as? RelativeLayout ?: return
+        attachToRoot(root)
+    }
+
+    private fun attachToRoot(root: RelativeLayout, allowRetry: Boolean = true) {
+        if (controllers.containsKey(root)) return
+        val ctx = root.context ?: return
+        val pkg = ctx.packageName
+        val res = ctx.resources
         val inputContainerId = res.getIdentifier("input_container", "id", pkg)
         val queryTextId = res.getIdentifier("query_text", "id", pkg)
         val webBtnId = res.getIdentifier("search_in_web_btn", "id", pkg)
 
-        val root = (if (rootId != 0) activity.findViewById<View>(rootId) else null) as? RelativeLayout
-        val inputContainer = if (inputContainerId != 0) activity.findViewById<View>(inputContainerId) else null
+        val inputContainer = if (inputContainerId != 0) root.findViewById<View>(inputContainerId) else null
         val editTexts = mutableListOf<EditText>()
         val webBtns = mutableListOf<View>()
         if (inputContainer != null) {
             // 小米搜索 InputViewContainer 内置 3 套共用相同 ID 的输入布局，前 2 套默认 GONE，必须全量绑定
             collectViewsById(inputContainer, queryTextId, EditText::class.java, editTexts)
             collectViewsById(inputContainer, webBtnId, View::class.java, webBtns)
-        } else if (root != null) {
+        } else {
             collectViewsById(root, queryTextId, EditText::class.java, editTexts)
             collectViewsById(root, webBtnId, View::class.java, webBtns)
         }
 
-        if (root == null || inputContainer == null || editTexts.isEmpty()) {
+        if (inputContainer == null || editTexts.isEmpty()) {
             if (allowRetry) {
                 mainHandler.postDelayed({
-                    attachToActivity(activity, allowRetry = false)
+                    attachToRoot(root, allowRetry = false)
                 }, 250L)
             }
             return
         }
-        val controller = OverlayController(activity, root, inputContainer, editTexts, webBtns)
-        controllers[activity] = controller
+        val controller = OverlayController(ctx, root, inputContainer, editTexts, webBtns)
+        controllers[root] = controller
         controller.bind()
     }
 
@@ -780,7 +828,7 @@ internal class QuickSearchTranslateHooks(
     }
 
     private inner class OverlayController(
-        private val activity: Activity,
+        private val context: Context,
         private val root: RelativeLayout,
         private val inputContainer: View,
         private val editTexts: List<EditText>,
@@ -796,25 +844,40 @@ internal class QuickSearchTranslateHooks(
         private var activeEditText: EditText = editTexts.firstOrNull { it.isShown } ?: editTexts.last()
         private val boundWatchers = mutableListOf<Pair<EditText, TextWatcher>>()
 
-        private val d = activity.resources.displayMetrics.density
+        private val d = context.resources.displayMetrics.density
         private fun dp(v: Float): Int = (v * d + 0.5f).toInt()
         private val rootLoc = IntArray(2)
         private val anchorLoc = IntArray(2)
         private val statusBarHeightPx: Int by lazy {
-            val id = activity.resources.getIdentifier("status_bar_height", "dimen", "android")
-            if (id != 0) activity.resources.getDimensionPixelSize(id) else dp(36f)
+            val id = context.resources.getIdentifier("status_bar_height", "dimen", "android")
+            if (id != 0) context.resources.getDimensionPixelSize(id) else dp(36f)
         }
         private val preDrawListener = android.view.ViewTreeObserver.OnPreDrawListener {
             syncCardPositionWithInput()
             true
         }
+        private val attachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                runCatching {
+                    v.viewTreeObserver.removeOnPreDrawListener(preDrawListener)
+                    v.viewTreeObserver.addOnPreDrawListener(preDrawListener)
+                }
+            }
+
+            override fun onViewDetachedFromWindow(v: View) {
+                runCatching { v.viewTreeObserver.removeOnPreDrawListener(preDrawListener) }
+            }
+        }
+
+        private fun isHostDestroyed(): Boolean =
+            (context as? Activity)?.let { it.isFinishing || it.isDestroyed } == true
 
         private fun findVisibleInputAnchor(): View {
             val visibleEdit = editTexts.firstOrNull { it.isShown } ?: activeEditText
             var cur: View? = visibleEdit
             while (cur != null && cur !== inputContainer) {
                 val entryName = runCatching {
-                    if (cur.id != View.NO_ID) activity.resources.getResourceEntryName(cur.id) else null
+                    if (cur.id != View.NO_ID) context.resources.getResourceEntryName(cur.id) else null
                 }.getOrNull()
                 if (entryName == "input_view_container") return cur
                 cur = cur.parent as? View
@@ -841,7 +904,7 @@ internal class QuickSearchTranslateHooks(
             }
         }
 
-        private val cardContainer = LinearLayout(activity).apply {
+        private val cardContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
             elevation = dp(10f).toFloat()
@@ -849,23 +912,23 @@ internal class QuickSearchTranslateHooks(
             isClickable = true
             isFocusable = false
         }
-        private val headerTitle = TextView(activity)
-        private val langChip = TextView(activity)
-        private val closeBtn = TextView(activity)
-        private val metaLine = TextView(activity)
-        private val scrollView = ScrollView(activity)
-        private val bodyColumn = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        private val primaryView = TextView(activity)
-        private val meaningsView = TextView(activity)
-        private val academicView = TextView(activity)
-        private val actionRow = LinearLayout(activity).apply {
+        private val headerTitle = TextView(context)
+        private val langChip = TextView(context)
+        private val closeBtn = TextView(context)
+        private val metaLine = TextView(context)
+        private val scrollView = ScrollView(context)
+        private val bodyColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        private val primaryView = TextView(context)
+        private val meaningsView = TextView(context)
+        private val academicView = TextView(context)
+        private val actionRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        private val expandBtn = TextView(activity)
-        private val copyBtn = TextView(activity)
-        private val eudicBtn = TextView(activity)
-        private val deeplBtn = TextView(activity)
+        private val expandBtn = TextView(context)
+        private val copyBtn = TextView(context)
+        private val eudicBtn = TextView(context)
+        private val deeplBtn = TextView(context)
 
         private fun currentInputText(): String {
             val visible = editTexts.firstOrNull { it.isShown }
@@ -888,7 +951,10 @@ internal class QuickSearchTranslateHooks(
                 bottomMargin = dp(10f)
             }
             root.addView(cardContainer, lp)
-            root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
+            root.addOnAttachStateChangeListener(attachListener)
+            if (root.isAttachedToWindow) {
+                root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
+            }
             editTexts.forEach { et ->
                 val w = object : TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -929,7 +995,7 @@ internal class QuickSearchTranslateHooks(
                 return true
             }
             if (settings.customWebSearchActive) {
-                return launchCustomWebSearch(activity, trimmed)
+                return launchCustomWebSearch(context, trimmed)
             }
             return false
         }
@@ -977,6 +1043,7 @@ internal class QuickSearchTranslateHooks(
             pendingRunnable?.let(mainHandler::removeCallbacks)
             pendingRunnable = null
             seq.incrementAndGet()
+            runCatching { root.removeOnAttachStateChangeListener(attachListener) }
             runCatching { root.viewTreeObserver.removeOnPreDrawListener(preDrawListener) }
             boundWatchers.forEach { (et, w) -> runCatching { et.removeTextChangedListener(w) } }
             boundWatchers.clear()
@@ -1018,7 +1085,7 @@ internal class QuickSearchTranslateHooks(
             val accentColor = Color.rgb(118, 186, 255)
 
             // 1. 顶部栏：词头 + 目标语言快切 + 关闭
-            val headerRow = LinearLayout(activity).apply {
+            val headerRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
@@ -1121,9 +1188,9 @@ internal class QuickSearchTranslateHooks(
             }
             styleAction(copyBtn, "复制") {
                 val res = lastResult ?: return@styleAction
-                val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                 cm?.setPrimaryClip(ClipData.newPlainText("translation", res.primaryTranslation))
-                Toast.makeText(activity, "已复制译文", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "已复制译文", Toast.LENGTH_SHORT).show()
             }
             styleAction(expandBtn, "展开详释", accent = true) {
                 expanded = !expanded
@@ -1131,11 +1198,11 @@ internal class QuickSearchTranslateHooks(
             }
             styleAction(eudicBtn, "欧路词典", accent = true) {
                 val q = lastQueryText.ifBlank { lastResult?.query.orEmpty() }
-                if (q.isNotBlank()) launchEudicLookup(activity, q)
+                if (q.isNotBlank()) launchEudicLookup(context, q)
             }
             styleAction(deeplBtn, "DeepL") {
                 val q = lastQueryText.ifBlank { lastResult?.query.orEmpty() }
-                if (q.isNotBlank()) launchDeepLLookup(activity, q)
+                if (q.isNotBlank()) launchDeepLLookup(context, q)
             }
 
             val chipLp = { start: Int ->
@@ -1213,7 +1280,7 @@ internal class QuickSearchTranslateHooks(
             worker.execute {
                 val res = runCatching { fetchTranslation(query, targetLang) }.getOrNull()
                 mainHandler.post {
-                    if (token != seq.get() || activity.isFinishing || activity.isDestroyed) return@post
+                    if (token != seq.get() || isHostDestroyed()) return@post
                     if (res != null) {
                         renderResult(res)
                     } else {
@@ -1225,8 +1292,8 @@ internal class QuickSearchTranslateHooks(
 
         private fun updateLocalAppButtons() {
             val showLocal = settings.showLocalAppShortcuts
-            eudicBtn.visibility = if (showLocal && resolveEudicPackage(activity) != null) View.VISIBLE else View.GONE
-            deeplBtn.visibility = if (showLocal && isPackageInstalled(activity, "com.deepl.mobiletranslator")) View.VISIBLE else View.GONE
+            eudicBtn.visibility = if (showLocal && resolveEudicPackage(context) != null) View.VISIBLE else View.GONE
+            deeplBtn.visibility = if (showLocal && isPackageInstalled(context, "com.deepl.mobiletranslator")) View.VISIBLE else View.GONE
         }
 
         private fun adjustScrollMaxHeight() {
